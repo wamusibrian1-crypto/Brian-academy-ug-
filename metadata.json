@@ -1,0 +1,6 @@
+{
+  "name": "BRIAN ACADEMY UG",
+  "description": "Independent Ugandan secondary education teaching and learning platform for Senior One to Senior Six with Student and Administrator portals.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

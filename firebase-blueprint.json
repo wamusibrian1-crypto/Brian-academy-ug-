@@ -1,0 +1,404 @@
+{
+  "entities": {
+    "AdminProfile": {
+      "title": "AdminProfile",
+      "description": "Authorized administrator account profile.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 200 },
+        "fullName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "role": { "type": "string", "enum": ["owner", "admin"] },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "fullName", "role", "active", "createdAt", "updatedAt"]
+    },
+    "AdminInvite": {
+      "title": "AdminInvite",
+      "description": "Owner-authorized administrator invitation keyed by lowercase email.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email", "maxLength": 200 },
+        "fullName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "active": { "type": "boolean" },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "fullName", "active", "createdBy", "createdAt"]
+    },
+    "TeacherInvite": {
+      "title": "TeacherInvite",
+      "description": "Administrator-authorized teacher invitation with assigned classes and subjects.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email", "maxLength": 200 },
+        "fullName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "staffNumber": { "type": "string", "maxLength": 40 },
+        "classes": { "type": "array" },
+        "subjects": { "type": "array" },
+        "active": { "type": "boolean" },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "fullName", "staffNumber", "classes", "subjects", "active", "createdBy", "createdAt"]
+    },
+    "TeacherProfile": {
+      "title": "TeacherProfile",
+      "description": "Authorized teacher account with class and subject assignments.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 200 },
+        "fullName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "staffNumber": { "type": "string", "maxLength": 40 },
+        "classes": { "type": "array" },
+        "subjects": { "type": "array" },
+        "status": { "type": "string", "enum": ["active", "suspended"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "fullName", "staffNumber", "classes", "subjects", "status", "createdAt", "updatedAt"]
+    },
+    "StudentProfile": {
+      "title": "StudentProfile",
+      "description": "Student account scoped to a Ugandan secondary class S1-S6.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "fullName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "email": { "type": "string", "format": "email", "maxLength": 200 },
+        "classLevel": { "type": "string", "enum": ["S1", "S2", "S3", "S4", "S5", "S6"] },
+        "studentNumber": { "type": "string", "maxLength": 40 },
+        "subjects": { "type": "array" },
+        "status": { "type": "string", "enum": ["pending", "approved", "suspended"] },
+        "role": { "type": "string", "enum": ["student"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "fullName", "email", "classLevel", "studentNumber", "subjects", "status", "role", "createdAt", "updatedAt"]
+    },
+    "AcademicSettings": {
+      "title": "AcademicSettings",
+      "description": "Ugandan grading scale, term details, and fee schedule settings.",
+      "type": "object",
+      "properties": {
+        "termName": { "type": "string", "maxLength": 60 },
+        "academicYear": { "type": "string", "maxLength": 20 },
+        "passMark": { "type": "number" },
+        "gradingSystem": { "type": "string", "enum": ["UNEB_O_LEVEL", "UNEB_A_LEVEL", "CUSTOM"] },
+        "gradeBands": { "type": "array" },
+        "schoolMotto": { "type": "string", "maxLength": 160 },
+        "supportPhone": { "type": "string", "maxLength": 40 },
+        "supportEmail": { "type": "string", "maxLength": 120 },
+        "feeStructure": { "type": "object" },
+        "muteUnpaid": { "type": "boolean" },
+        "updatedBy": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["termName", "academicYear", "passMark", "gradingSystem", "gradeBands", "schoolMotto", "supportPhone", "supportEmail", "feeStructure", "muteUnpaid", "updatedBy", "updatedAt"]
+    },
+    "Course": {
+      "title": "Course",
+      "description": "Class and subject curriculum course.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "classLevel": { "type": "string", "enum": ["S1", "S2", "S3", "S4", "S5", "S6"] },
+        "subject": { "type": "string", "enum": ["MTC", "Physics", "Chemistry", "Biology"] },
+        "title": { "type": "string", "maxLength": 140 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "teacherId": { "type": "string", "maxLength": 128 },
+        "teacherName": { "type": "string", "maxLength": 120 },
+        "topics": { "type": "array" },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "classLevel", "subject", "title", "description", "teacherId", "teacherName", "topics", "active", "createdAt", "updatedAt"]
+    },
+    "LiveClass": {
+      "title": "LiveClass",
+      "description": "Scheduled or active live teaching session.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "maxLength": 160 },
+        "classLevel": { "type": "string", "enum": ["S1", "S2", "S3", "S4", "S5", "S6"] },
+        "subject": { "type": "string", "enum": ["MTC", "Physics", "Chemistry", "Biology"] },
+        "teacherId": { "type": "string", "maxLength": 128 },
+        "teacherName": { "type": "string", "maxLength": 120 },
+        "scheduledAt": { "type": "string", "maxLength": 40 },
+        "durationMinutes": { "type": "number" },
+        "meetingUrl": { "type": "string", "maxLength": 500 },
+        "sharedNotes": { "type": "string", "maxLength": 4000 },
+        "attachedMaterialTitle": { "type": "string", "maxLength": 160 },
+        "attachedMaterialUrl": { "type": "string", "maxLength": 500 },
+        "status": { "type": "string", "enum": ["scheduled", "live", "ended"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "classLevel", "subject", "teacherId", "teacherName", "scheduledAt", "durationMinutes", "meetingUrl", "sharedNotes", "attachedMaterialTitle", "attachedMaterialUrl", "status", "createdAt", "updatedAt"]
+    },
+    "LiveAttendance": {
+      "title": "LiveAttendance",
+      "description": "Student attendance record for a live class session.",
+      "type": "object",
+      "properties": {
+        "studentUid": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "studentNumber": { "type": "string", "maxLength": 40 },
+        "classLevel": { "type": "string", "enum": ["S1", "S2", "S3", "S4", "S5", "S6"] },
+        "joinedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["studentUid", "studentName", "studentNumber", "classLevel", "joinedAt"]
+    },
+    "StudyMaterial": {
+      "title": "StudyMaterial",
+      "description": "Uploaded notes, PDFs, presentations, images, revision packs, and video lessons.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "maxLength": 160 },
+        "description": { "type": "string", "maxLength": 1500 },
+        "classLevel": { "type": "string", "enum": ["S1", "S2", "S3", "S4", "S5", "S6"] },
+        "subject": { "type": "string", "enum": ["MTC", "Physics", "Chemistry", "Biology"] },
+        "materialType": { "type": "string", "enum": ["pdf", "document", "image", "presentation", "revision", "video"] },
+        "fileUrl": { "type": "string", "maxLength": 1000 },
+        "inlineContent": { "type": "string", "maxLength": 20000 },
+        "fileName": { "type": "string", "maxLength": 200 },
+        "uploadedBy": { "type": "string", "maxLength": 128 },
+        "uploaderName": { "type": "string", "maxLength": 120 },
+        "published": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "description", "classLevel", "subject", "materialType", "fileUrl", "inlineContent", "fileName", "uploadedBy", "uploaderName", "published", "createdAt", "updatedAt"]
+    },
+    "Assessment": {
+      "title": "Assessment",
+      "description": "Examination test or homework assignment.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "kind": { "type": "string", "enum": ["test", "homework"] },
+        "title": { "type": "string", "maxLength": 160 },
+        "instructions": { "type": "string", "maxLength": 2000 },
+        "classLevel": { "type": "string", "enum": ["S1", "S2", "S3", "S4", "S5", "S6"] },
+        "subject": { "type": "string", "enum": ["MTC", "Physics", "Chemistry", "Biology"] },
+        "durationMinutes": { "type": "number" },
+        "totalMarks": { "type": "number" },
+        "dueDate": { "type": "string", "maxLength": 40 },
+        "questions": { "type": "array" },
+        "attachmentUrl": { "type": "string", "maxLength": 1000 },
+        "attachmentName": { "type": "string", "maxLength": 200 },
+        "attachmentType": { "type": "string", "enum": ["", "pdf", "photo"] },
+        "published": { "type": "boolean" },
+        "resultsPublished": { "type": "boolean" },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "creatorName": { "type": "string", "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "kind", "title", "instructions", "classLevel", "subject", "durationMinutes", "totalMarks", "dueDate", "questions", "attachmentUrl", "attachmentName", "attachmentType", "published", "resultsPublished", "createdBy", "creatorName", "createdAt", "updatedAt"]
+    },
+    "AssessmentAnswerKey": {
+      "title": "AssessmentAnswerKey",
+      "description": "Protected answer key and marking guide readable only by administrators and teachers.",
+      "type": "object",
+      "properties": {
+        "answers": { "type": "object" },
+        "updatedBy": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["answers", "updatedBy", "updatedAt"]
+    },
+    "AssessmentSubmission": {
+      "title": "AssessmentSubmission",
+      "description": "Student submission and graded result for a test or homework.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "assessmentId": { "type": "string", "maxLength": 128 },
+        "assessmentTitle": { "type": "string", "maxLength": 160 },
+        "kind": { "type": "string", "enum": ["test", "homework"] },
+        "classLevel": { "type": "string", "enum": ["S1", "S2", "S3", "S4", "S5", "S6"] },
+        "subject": { "type": "string", "enum": ["MTC", "Physics", "Chemistry", "Biology"] },
+        "studentId": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "studentNumber": { "type": "string", "maxLength": 40 },
+        "answers": { "type": "array" },
+        "questionScores": { "type": "array" },
+        "totalScore": { "type": "number" },
+        "maxMarks": { "type": "number" },
+        "grade": { "type": "string", "maxLength": 20 },
+        "teacherRemarks": { "type": "string", "maxLength": 1000 },
+        "attachmentUrl": { "type": "string", "maxLength": 1000 },
+        "attachmentName": { "type": "string", "maxLength": 200 },
+        "attachmentType": { "type": "string", "enum": ["", "pdf", "photo"] },
+        "status": { "type": "string", "enum": ["submitted", "graded", "published"] },
+        "submittedAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "assessmentId", "assessmentTitle", "kind", "classLevel", "subject", "studentId", "studentName", "studentNumber", "answers", "questionScores", "totalScore", "maxMarks", "grade", "teacherRemarks", "attachmentUrl", "attachmentName", "attachmentType", "status", "submittedAt", "updatedAt"]
+    },
+    "FeeRecord": {
+      "title": "FeeRecord",
+      "description": "School fees invoice or payment record in UGX.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "studentId": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "studentNumber": { "type": "string", "maxLength": 40 },
+        "classLevel": { "type": "string", "enum": ["S1", "S2", "S3", "S4", "S5", "S6"] },
+        "term": { "type": "string", "maxLength": 60 },
+        "amountPaidUGX": { "type": "number" },
+        "totalTermFeeUGX": { "type": "number" },
+        "paymentMethod": { "type": "string", "enum": ["MTN MoMo", "Airtel Money", "Bank Deposit", "Cash Receipt", "Term Invoice"] },
+        "referenceCode": { "type": "string", "maxLength": 80 },
+        "recordedBy": { "type": "string", "maxLength": 128 },
+        "paidAt": { "type": "string", "maxLength": 40 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "studentId", "studentName", "studentNumber", "classLevel", "term", "amountPaidUGX", "totalTermFeeUGX", "paymentMethod", "referenceCode", "recordedBy", "paidAt", "createdAt"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Permitted academic discussion message.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "channelId": { "type": "string", "maxLength": 80 },
+        "classLevel": { "type": "string", "enum": ["S1", "S2", "S3", "S4", "S5", "S6"] },
+        "subject": { "type": "string", "maxLength": 40 },
+        "senderId": { "type": "string", "maxLength": 128 },
+        "senderName": { "type": "string", "maxLength": 120 },
+        "senderRole": { "type": "string", "enum": ["student", "teacher", "admin"] },
+        "recipientStudentId": { "type": "string", "maxLength": 128 },
+        "text": { "type": "string", "minLength": 1, "maxLength": 1500 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "channelId", "classLevel", "subject", "senderId", "senderName", "senderRole", "recipientStudentId", "text", "createdAt"]
+    },
+    "SupportTicket": {
+      "title": "SupportTicket",
+      "description": "Student help request ticket.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "studentId": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "classLevel": { "type": "string", "enum": ["S1", "S2", "S3", "S4", "S5", "S6"] },
+        "category": { "type": "string", "enum": ["Technical", "Fees", "Exams", "Account", "Other"] },
+        "subject": { "type": "string", "maxLength": 160 },
+        "message": { "type": "string", "maxLength": 2000 },
+        "adminReply": { "type": "string", "maxLength": 2000 },
+        "status": { "type": "string", "enum": ["open", "resolved"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "studentId", "studentName", "classLevel", "category", "subject", "message", "adminReply", "status", "createdAt", "updatedAt"]
+    },
+    "ActivityLog": {
+      "title": "ActivityLog",
+      "description": "Platform audit and academic activity log entry.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "actorId": { "type": "string", "maxLength": 128 },
+        "actorName": { "type": "string", "maxLength": 120 },
+        "actorRole": { "type": "string", "enum": ["student", "teacher", "admin"] },
+        "action": { "type": "string", "maxLength": 160 },
+        "details": { "type": "string", "maxLength": 400 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "actorId", "actorName", "actorRole", "action", "details", "createdAt"]
+    },
+    "AdvertPhoto": {
+      "title": "AdvertPhoto",
+      "description": "Administrator-managed promotional advert photo shown on the first page.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "maxLength": 120 },
+        "caption": { "type": "string", "maxLength": 300 },
+        "imageUrl": { "type": "string", "maxLength": 1000 },
+        "active": { "type": "boolean" },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "caption", "imageUrl", "active", "createdBy", "createdAt"]
+    },
+    "ReportCard": {
+      "title": "ReportCard",
+      "description": "Prepared Ugandan academic term report card with subject remarks and overall teacher/headteacher comments.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "studentId": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "studentNumber": { "type": "string", "maxLength": 40 },
+        "classLevel": { "type": "string", "enum": ["S1", "S2", "S3", "S4", "S5", "S6"] },
+        "term": { "type": "string", "maxLength": 60 },
+        "academicYear": { "type": "string", "maxLength": 20 },
+        "entries": { "type": "array" },
+        "overallAverage": { "type": "number" },
+        "conduct": { "type": "string", "maxLength": 80 },
+        "teacherRemark": { "type": "string", "maxLength": 1000 },
+        "headTeacherRemark": { "type": "string", "maxLength": 1000 },
+        "published": { "type": "boolean" },
+        "preparedBy": { "type": "string", "maxLength": 128 },
+        "preparedByName": { "type": "string", "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "studentId", "studentName", "studentNumber", "classLevel", "term", "academicYear", "entries", "overallAverage", "conduct", "teacherRemark", "headTeacherRemark", "published", "preparedBy", "preparedByName", "createdAt", "updatedAt"]
+    },
+    "FeePaymentRequest": {
+      "title": "FeePaymentRequest",
+      "description": "Student-submitted school fee payment proof awaiting administrator verification.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "studentId": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 120 },
+        "classLevel": { "type": "string", "enum": ["S1", "S2", "S3", "S4", "S5", "S6"] },
+        "term": { "type": "string", "maxLength": 60 },
+        "amountUGX": { "type": "number" },
+        "paymentMethod": { "type": "string", "enum": ["MTN MoMo", "Airtel Money", "Bank Deposit", "Cash Receipt"] },
+        "referenceCode": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "payerPhone": { "type": "string", "maxLength": 40 },
+        "receiptUrl": { "type": "string", "maxLength": 250000 },
+        "adminNote": { "type": "string", "maxLength": 400 },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "studentId", "studentName", "classLevel", "term", "amountUGX", "paymentMethod", "referenceCode", "payerPhone", "receiptUrl", "adminNote", "status", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/admins/{uid}": { "schema": { "$ref": "#/entities/AdminProfile" }, "description": "Authorized administrator accounts." },
+    "/adminInvites/{inviteEmail}": { "schema": { "$ref": "#/entities/AdminInvite" }, "description": "Owner-authorized administrator invitations." },
+    "/teacherInvites/{inviteEmail}": { "schema": { "$ref": "#/entities/TeacherInvite" }, "description": "Administrator-authorized teacher invitations." },
+    "/teachers/{uid}": { "schema": { "$ref": "#/entities/TeacherProfile" }, "description": "Authorized teacher accounts." },
+    "/students/{uid}": { "schema": { "$ref": "#/entities/StudentProfile" }, "description": "Student accounts and class enrollment." },
+    "/settings/{settingId}": { "schema": { "$ref": "#/entities/AcademicSettings" }, "description": "Academic term, Ugandan grading scale, and fee structure settings." },
+    "/courses/{courseId}": { "schema": { "$ref": "#/entities/Course" }, "description": "Class and subject curriculum courses." },
+    "/liveClasses/{lessonId}": { "schema": { "$ref": "#/entities/LiveClass" }, "description": "Scheduled and live classes." },
+    "/liveClasses/{lessonId}/attendance/{studentUid}": { "schema": { "$ref": "#/entities/LiveAttendance" }, "description": "Live class attendance records." },
+    "/materials/{materialId}": { "schema": { "$ref": "#/entities/StudyMaterial" }, "description": "Uploaded study materials and video lessons." },
+    "/assessments/{assessmentId}": { "schema": { "$ref": "#/entities/Assessment" }, "description": "Tests and homework assessments." },
+    "/assessments/{assessmentId}/private/{docId}": { "schema": { "$ref": "#/entities/AssessmentAnswerKey" }, "description": "Protected assessment answer keys." },
+    "/submissions/{submissionId}": { "schema": { "$ref": "#/entities/AssessmentSubmission" }, "description": "Student assessment submissions and graded results." },
+    "/feeRecords/{recordId}": { "schema": { "$ref": "#/entities/FeeRecord" }, "description": "Student fee payment records in UGX." },
+    "/feePaymentRequests/{requestId}": { "schema": { "$ref": "#/entities/FeePaymentRequest" }, "description": "Student-submitted fee payment requests pending admin verification." },
+    "/chatMessages/{messageId}": { "schema": { "$ref": "#/entities/ChatMessage" }, "description": "Class and teacher-student chat messages." },
+    "/supportTickets/{ticketId}": { "schema": { "$ref": "#/entities/SupportTicket" }, "description": "Student help tickets." },
+    "/activityLogs/{logId}": { "schema": { "$ref": "#/entities/ActivityLog" }, "description": "Platform activity monitoring logs." },
+    "/advertPhotos/{advertId}": { "schema": { "$ref": "#/entities/AdvertPhoto" }, "description": "Administrator advert photos displayed on the entry page." },
+    "/reportCards/{reportId}": { "schema": { "$ref": "#/entities/ReportCard" }, "description": "Prepared academic term report cards." }
+  }
+}
