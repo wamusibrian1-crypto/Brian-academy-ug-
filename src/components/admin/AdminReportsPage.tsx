@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
+  Award,
   BarChart3,
   CheckCircle2,
   Download,
@@ -36,16 +37,22 @@ import {
   SupportTicket,
 } from '../../types/academy';
 import { formatTimestamp, generateDocId, sanitizeString } from '../../lib/validation';
-import { generateReportCardPdf } from '../../lib/reportCardPdf';
+import { generateOfficialCertificatePdf, generateReportCardPdf } from '../../lib/reportCardPdf';
 import { logPlatformActivity } from '../../lib/activity';
+import { OfficialLogo } from '../BrandMark';
+import { publishPublicNotice } from '../../lib/publicNotifications';
 
-export const AdminReportsPage: React.FC = () => {
+interface AdminReportsPageProps {
+  initialTab?: 'reports' | 'activity' | 'tickets' | 'chat';
+}
+
+export const AdminReportsPage: React.FC<AdminReportsPageProps> = ({ initialTab }) => {
   const { role, adminProfile, teacherProfile, academicSettings } = useAuth();
   const isAdmin = role === 'admin';
   const staffUid = adminProfile?.uid || teacherProfile?.uid || '';
   const staffName = adminProfile?.fullName || teacherProfile?.fullName || 'Staff';
 
-  const [tab, setTab] = useState<'reports' | 'activity' | 'tickets' | 'chat'>('reports');
+  const [tab, setTab] = useState<'reports' | 'activity' | 'tickets' | 'chat'>(initialTab || 'reports');
   const [students, setStudents] = useState<StudentProfile[]>([]);
   const [submissions, setSubmissions] = useState<AssessmentSubmission[]>([]);
   const [reportCards, setReportCards] = useState<ReportCard[]>([]);
@@ -56,11 +63,17 @@ export const AdminReportsPage: React.FC = () => {
 
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [ticketReplies, setTicketReplies] = useState<Record<string, string>>({});
-  const [chatMode, setChatMode] = useState<'channel' | 'direct'>('channel');
+  const [chatMode, setChatMode] = useState<'institution' | 'channel' | 'direct'>('institution');
   const [chatClass, setChatClass] = useState<ClassLevel>('S1');
   const [chatSubject, setChatSubject] = useState('MTC');
   const [chatStudentId, setChatStudentId] = useState('');
   const [chatText, setChatText] = useState('');
+
+  useEffect(() => {
+    if (initialTab) {
+      setTab(initialTab);
+    }
+  }, [initialTab]);
 
   // Report card builder state
   const [rcEntries, setRcEntries] = useState<ReportCardEntry[]>([]);
@@ -295,7 +308,7 @@ export const AdminReportsPage: React.FC = () => {
     }
   };
 
-  const handleDownloadPdf = () => {
+  const handleDownloadPdf = async () => {
     if (!selectedStudent) return;
     const sanitizedEntries: ReportCardEntry[] = rcEntries.map((entry) => {
       const safeMax = Math.max(1, Number(entry.maxMarks) || 100);
@@ -329,7 +342,18 @@ export const AdminReportsPage: React.FC = () => {
       preparedBy: staffUid,
       preparedByName: staffName,
     };
-    generateReportCardPdf(draftCard, academicSettings);
+    await generateReportCardPdf(draftCard, academicSettings);
+  };
+
+  const handleDownloadCertificate = async () => {
+    if (!selectedStudent) return;
+    await generateOfficialCertificatePdf({
+      studentName: selectedStudent.fullName,
+      classLevel: selectedStudent.classLevel,
+      settings: academicSettings,
+      overallAverage: rcEntries.length > 0 ? computeAverage(rcEntries) : undefined,
+      termLabel: `${academicSettings.termName} ${academicSettings.academicYear}`,
+    });
   };
 
   const handleResolveTicket = async (t: SupportTicket) => {
@@ -351,14 +375,19 @@ export const AdminReportsPage: React.FC = () => {
     if (!clean) return;
     const id = generateDocId('msg');
     const targetStu = students.find((s) => s.uid === chatStudentId);
+    const isInstitution = chatMode === 'institution';
     const isDirect = chatMode === 'direct' && Boolean(targetStu);
-    const channelId = isDirect && targetStu ? `dm_${targetStu.uid}` : `${chatClass}_${chatSubject}`;
+    const channelId = isInstitution
+      ? 'institution_all'
+      : isDirect && targetStu
+        ? `dm_${targetStu.uid}`
+        : `${chatClass}_${chatSubject}`;
     try {
       await setDoc(doc(db, 'chatMessages', id), {
         id,
         channelId,
-        classLevel: isDirect && targetStu ? targetStu.classLevel : chatClass,
-        subject: isDirect ? 'Progress Chat' : chatSubject,
+        classLevel: isInstitution ? 'ALL' : isDirect && targetStu ? targetStu.classLevel : chatClass,
+        subject: isInstitution ? 'Whole Institution' : isDirect ? 'Progress Chat' : chatSubject,
         senderId: staffUid,
         senderName: staffName,
         senderRole: isAdmin ? 'admin' : 'teacher',
@@ -366,6 +395,20 @@ export const AdminReportsPage: React.FC = () => {
         text: clean,
         createdAt: serverTimestamp(),
       });
+      if (!isDirect && staffUid) {
+        void publishPublicNotice({
+          kind: 'chat',
+          title: isInstitution
+            ? 'New Institution Chat Message'
+            : `New ${chatClass} ${chatSubject} Chat`,
+          summary: isInstitution
+            ? 'Whole Institution Chat Room · New staff announcement or message posted'
+            : `${chatClass} ${chatSubject} · New staff discussion message posted`,
+          subject: isInstitution ? 'Institution' : chatSubject,
+          classLevel: isInstitution ? 'ALL' : chatClass,
+          createdBy: staffUid,
+        });
+      }
       setChatText('');
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, `chatMessages/${id}`);
@@ -400,7 +443,7 @@ export const AdminReportsPage: React.FC = () => {
             tab === 'chat' ? 'bg-surface text-heading shadow-xs' : 'text-muted'
           }`}
         >
-          Class Academic Chat
+          Institution Chat Room
         </button>
         {isAdmin && (
           <>
@@ -447,12 +490,21 @@ export const AdminReportsPage: React.FC = () => {
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={handleDownloadPdf}
+                onClick={() => void handleDownloadPdf()}
                 disabled={!selectedStudent}
                 className="inline-flex items-center gap-2 rounded-xl bg-btn-primary px-4 py-2 text-xs font-semibold text-white hover:bg-btn-primary-hover disabled:opacity-50"
               >
                 <Download className="h-4 w-4 text-accent-gold" />
                 <span>Download Report Card PDF</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDownloadCertificate()}
+                disabled={!selectedStudent}
+                className="inline-flex items-center gap-2 rounded-xl bg-[#EAB308] px-4 py-2 text-xs font-bold text-[#0B1F3A] hover:bg-[#FACC15] disabled:opacity-50"
+              >
+                <Award className="h-4 w-4" />
+                <span>Certificate PDF</span>
               </button>
               <button
                 type="button"
@@ -527,15 +579,20 @@ export const AdminReportsPage: React.FC = () => {
               onSubmit={handleSaveReportCard}
               className="rounded-2xl border border-border-theme bg-surface p-6 shadow-xs space-y-5"
             >
-              <div className="border-b border-border-theme pb-4 flex flex-wrap justify-between gap-4">
-                <div>
-                  <h2 className="text-xl text-heading">
-                    <span className="brand-wordmark">BRIAN ACADEMY <span className="text-accent-gold-text">UG</span></span>
-                    <span className="font-display font-bold text-muted"> — REPORT CARD BUILDER</span>
-                  </h2>
-                  <p className="text-xs text-muted">
-                    {academicSettings.termName} {academicSettings.academicYear} · {academicSettings.schoolMotto}
-                  </p>
+              <div className="border-b border-border-theme pb-4 flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="h-14 w-14 shrink-0 rounded-xl bg-white p-1 shadow-xs ring-1 ring-[#EAB308]/50">
+                    <OfficialLogo className="h-full w-full" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl text-heading">
+                      <span className="brand-wordmark">BRIAN ACADEMY <span className="text-accent-gold-text">UG</span></span>
+                      <span className="font-display font-bold text-muted"> — REPORT CARD BUILDER</span>
+                    </h2>
+                    <p className="text-xs text-muted">
+                      {academicSettings.termName} {academicSettings.academicYear} · {academicSettings.schoolMotto || 'LEARN. DISCOVER. EXCEL.'}
+                    </p>
+                  </div>
                 </div>
                 <div className="text-right text-xs">
                   <div className="font-bold text-heading">{selectedStudent.fullName}</div>
@@ -803,7 +860,16 @@ export const AdminReportsPage: React.FC = () => {
       {tab === 'chat' && (
         <div className="rounded-2xl border border-border-theme bg-surface p-6 shadow-xs space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="inline-flex rounded-xl bg-surface-muted p-1">
+            <div className="inline-flex flex-wrap rounded-xl bg-surface-muted p-1">
+              <button
+                type="button"
+                onClick={() => setChatMode('institution')}
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
+                  chatMode === 'institution' ? 'bg-surface text-heading shadow-xs' : 'text-muted'
+                }`}
+              >
+                Whole Institution Room
+              </button>
               <button
                 type="button"
                 onClick={() => setChatMode('channel')}
@@ -849,7 +915,7 @@ export const AdminReportsPage: React.FC = () => {
                   ))}
                 </select>
               </div>
-            ) : (
+            ) : chatMode === 'direct' ? (
               <select
                 value={chatStudentId}
                 onChange={(e) => setChatStudentId(e.target.value)}
@@ -861,15 +927,21 @@ export const AdminReportsPage: React.FC = () => {
                   </option>
                 ))}
               </select>
+            ) : (
+              <span className="text-xs font-semibold text-accent-sky-text">
+                Open to all S1–S6 students, teachers & administrators
+              </span>
             )}
           </div>
 
           <div className="h-80 overflow-y-auto rounded-xl border border-border-theme bg-surface-subtle p-4 space-y-3">
             {chatMessages
               .filter((m) =>
-                chatMode === 'direct'
-                  ? m.channelId === `dm_${chatStudentId}`
-                  : m.channelId === `${chatClass}_${chatSubject}`
+                chatMode === 'institution'
+                  ? m.channelId === 'institution_all'
+                  : chatMode === 'direct'
+                    ? m.channelId === `dm_${chatStudentId}`
+                    : m.channelId === `${chatClass}_${chatSubject}`
               )
               .sort((a, b) => {
                 const ta = (a.createdAt as { seconds?: number })?.seconds ?? 0;
@@ -880,7 +952,8 @@ export const AdminReportsPage: React.FC = () => {
                 <div key={m.id} className="rounded-xl bg-surface p-3 border border-border-theme">
                   <div className="flex justify-between text-xs">
                     <span className="font-bold text-heading">
-                      {m.senderName} ({m.senderRole}) · {m.classLevel} {m.subject}
+                      {m.senderName} ({m.senderRole}) ·{' '}
+                      {m.classLevel === 'ALL' ? 'Whole Institution' : m.classLevel} {m.subject}
                     </span>
                     <span className="text-faint">{formatTimestamp(m.createdAt)}</span>
                   </div>
@@ -895,9 +968,11 @@ export const AdminReportsPage: React.FC = () => {
               value={chatText}
               onChange={(e) => setChatText(e.target.value)}
               placeholder={
-                chatMode === 'direct'
-                  ? 'Send a direct progress alert or message to this student...'
-                  : `Message ${chatClass} ${chatSubject} channel (alerts students)...`
+                chatMode === 'institution'
+                  ? 'Broadcast message to the Whole Institution Chat Room...'
+                  : chatMode === 'direct'
+                    ? 'Send a direct progress alert or message to this student...'
+                    : `Message ${chatClass} ${chatSubject} channel (alerts students)...`
               }
               className="flex-1 rounded-xl border border-border-input bg-input-bg px-3.5 py-2.5 text-sm text-heading"
             />

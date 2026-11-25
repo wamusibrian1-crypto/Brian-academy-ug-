@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, Loader2, MessageSquare, Send, VolumeX } from 'lucide-react';
+import { ArrowLeft, Globe2, Loader2, MessageSquare, Send, VolumeX } from 'lucide-react';
 import {
   collection,
   doc,
@@ -14,6 +14,7 @@ import { useAuth } from '../../context/AuthContext';
 import { ChatMessage, SUBJECTS, SubjectCode } from '../../types/academy';
 import { formatTimestamp, generateDocId, sanitizeString } from '../../lib/validation';
 import { useStudentFeeMute } from '../../hooks/useStudentFeeMute';
+import { publishPublicNotice } from '../../lib/publicNotifications';
 
 interface StudentChatPageProps {
   onBack: () => void;
@@ -23,7 +24,7 @@ interface StudentChatPageProps {
 export const StudentChatPage: React.FC<StudentChatPageProps> = ({ onBack, onOpenFees }) => {
   const { studentProfile, academicSettings } = useAuth();
   const { isMutedUnpaid } = useStudentFeeMute();
-  const [mode, setMode] = useState<'channel' | 'direct'>('channel');
+  const [mode, setMode] = useState<'institution' | 'channel' | 'direct'>('institution');
   const [selectedSubject, setSelectedSubject] = useState<SubjectCode>('MTC');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,25 +32,33 @@ export const StudentChatPage: React.FC<StudentChatPageProps> = ({ onBack, onOpen
   const [sending, setSending] = useState(false);
 
   const channelId =
-    mode === 'channel'
-      ? `${studentProfile?.classLevel}_${selectedSubject}`
-      : `dm_${studentProfile?.uid}`;
+    mode === 'institution'
+      ? 'institution_all'
+      : mode === 'channel'
+        ? `${studentProfile?.classLevel}_${selectedSubject}`
+        : `dm_${studentProfile?.uid}`;
 
   useEffect(() => {
     if (!studentProfile) return;
     setLoading(true);
     const q =
-      mode === 'channel'
+      mode === 'institution'
         ? query(
             collection(db, 'chatMessages'),
-            where('classLevel', '==', studentProfile.classLevel),
+            where('classLevel', '==', 'ALL'),
             where('recipientStudentId', '==', '')
           )
-        : query(
-            collection(db, 'chatMessages'),
-            where('classLevel', '==', studentProfile.classLevel),
-            where('recipientStudentId', '==', studentProfile.uid)
-          );
+        : mode === 'channel'
+          ? query(
+              collection(db, 'chatMessages'),
+              where('classLevel', '==', studentProfile.classLevel),
+              where('recipientStudentId', '==', '')
+            )
+          : query(
+              collection(db, 'chatMessages'),
+              where('classLevel', '==', studentProfile.classLevel),
+              where('recipientStudentId', '==', studentProfile.uid)
+            );
 
     const unsub = onSnapshot(
       q,
@@ -83,8 +92,13 @@ export const StudentChatPage: React.FC<StudentChatPageProps> = ({ onBack, onOpen
       await setDoc(doc(db, 'chatMessages', id), {
         id,
         channelId,
-        classLevel: studentProfile.classLevel,
-        subject: mode === 'channel' ? selectedSubject : 'Direct Staff Thread',
+        classLevel: mode === 'institution' ? 'ALL' : studentProfile.classLevel,
+        subject:
+          mode === 'institution'
+            ? studentProfile.classLevel
+            : mode === 'channel'
+              ? selectedSubject
+              : 'Direct Staff Thread',
         senderId: studentProfile.uid,
         senderName: studentProfile.fullName,
         senderRole: 'student',
@@ -92,6 +106,22 @@ export const StudentChatPage: React.FC<StudentChatPageProps> = ({ onBack, onOpen
         text: clean,
         createdAt: serverTimestamp(),
       });
+      if (mode !== 'direct') {
+        void publishPublicNotice({
+          kind: 'chat',
+          title:
+            mode === 'institution'
+              ? 'New Institution Chat Message'
+              : `New ${studentProfile.classLevel} ${selectedSubject} Chat`,
+          summary:
+            mode === 'institution'
+              ? 'Whole Institution Chat Room · New discussion message posted'
+              : `${studentProfile.classLevel} ${selectedSubject} · New subject discussion posted`,
+          subject: mode === 'institution' ? 'Institution' : selectedSubject,
+          classLevel: mode === 'institution' ? 'ALL' : studentProfile.classLevel,
+          createdBy: studentProfile.uid,
+        });
+      }
       setText('');
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, path);
@@ -113,16 +143,26 @@ export const StudentChatPage: React.FC<StudentChatPageProps> = ({ onBack, onOpen
         </button>
         <div>
           <h1 className="font-display text-2xl font-bold text-heading">
-            Academic Chat · {studentProfile.classLevel}
+            Institution Chat Room
           </h1>
           <p className="text-xs text-muted">
-            Subject study channels and direct communication with your teachers.
+            Whole-academy discussion room for all S1–S6 students, teachers, and administration.
           </p>
         </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <div className="inline-flex rounded-xl bg-surface-muted p-1">
+        <div className="inline-flex flex-wrap rounded-xl bg-surface-muted p-1">
+          <button
+            type="button"
+            onClick={() => setMode('institution')}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+              mode === 'institution' ? 'bg-surface text-heading shadow-xs' : 'text-muted'
+            }`}
+          >
+            <Globe2 className="h-3.5 w-3.5 text-accent-sky" />
+            <span>Whole Institution</span>
+          </button>
           <button
             type="button"
             onClick={() => setMode('channel')}
@@ -130,7 +170,7 @@ export const StudentChatPage: React.FC<StudentChatPageProps> = ({ onBack, onOpen
               mode === 'channel' ? 'bg-surface text-heading shadow-xs' : 'text-muted'
             }`}
           >
-            Class Subject Channels
+            {studentProfile.classLevel} Subjects
           </button>
           <button
             type="button"
@@ -170,7 +210,8 @@ export const StudentChatPage: React.FC<StudentChatPageProps> = ({ onBack, onOpen
             Chat Muted (Unpaid Fees)
           </h2>
           <p className="mt-1 text-sm text-muted">
-            Academic chat is muted while term tuition remains unpaid. Pay via Airtel Money ({academicSettings.supportPhone || '0753336009'}) and upload your screenshot to unlock.
+            Academic chat is muted while term tuition remains unpaid. Pay school fees via{' '}
+            {academicSettings.supportPhone || '256753336009'} and upload your proof to unlock.
           </p>
           {onOpenFees && (
             <button
@@ -178,7 +219,7 @@ export const StudentChatPage: React.FC<StudentChatPageProps> = ({ onBack, onOpen
               onClick={onOpenFees}
               className="mt-4 inline-flex items-center gap-2 rounded-xl bg-btn-primary px-5 py-2.5 text-xs font-semibold text-white hover:bg-btn-primary-hover transition-colors"
             >
-              Pay School Fees
+              Open School Fees
             </button>
           )}
         </div>
@@ -186,9 +227,11 @@ export const StudentChatPage: React.FC<StudentChatPageProps> = ({ onBack, onOpen
         <div className="flex h-[460px] flex-col rounded-2xl border border-border-theme bg-surface shadow-xs overflow-hidden">
           <div className="border-b border-border-subtle px-5 py-3 flex items-center justify-between bg-surface-subtle">
             <div className="text-xs font-bold text-heading">
-              {mode === 'channel'
-                ? `${studentProfile.classLevel} ${selectedSubject} Discussion`
-                : 'Direct Message with Teachers & Administration'}
+              {mode === 'institution'
+                ? 'BRIAN ACADEMY UG — Whole Institution Chat Room (S1–S6 & Staff)'
+                : mode === 'channel'
+                  ? `${studentProfile.classLevel} ${selectedSubject} Discussion`
+                  : 'Direct Message with Teachers & Administration'}
             </div>
             <MessageSquare className="h-4 w-4 text-accent-sky" />
           </div>
@@ -200,12 +243,20 @@ export const StudentChatPage: React.FC<StudentChatPageProps> = ({ onBack, onOpen
               </div>
             ) : messages.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center text-center text-muted">
-                <p className="text-sm font-medium">No messages in this thread yet.</p>
-                <p className="mt-1 text-xs">Send a message below to start the discussion.</p>
+                <p className="text-sm font-medium">No messages in this room yet.</p>
+                <p className="mt-1 text-xs">Send a message below to connect with the academy.</p>
               </div>
             ) : (
               messages.map((m) => {
                 const isMe = m.senderId === studentProfile.uid;
+                const roleLabel =
+                  m.senderRole === 'admin'
+                    ? 'Administrator'
+                    : m.senderRole === 'teacher'
+                      ? 'Teacher'
+                      : m.classLevel === 'ALL' && m.subject
+                        ? `Student · ${m.subject}`
+                        : 'Student';
                 return (
                   <div
                     key={m.id}
@@ -225,12 +276,7 @@ export const StudentChatPage: React.FC<StudentChatPageProps> = ({ onBack, onOpen
                           isMe ? 'text-sky-100' : 'text-muted'
                         }`}
                       >
-                        {m.senderName} ·{' '}
-                        {m.senderRole === 'admin'
-                          ? 'Administrator'
-                          : m.senderRole === 'teacher'
-                            ? 'Teacher'
-                            : 'Student'}
+                        {m.senderName} · {roleLabel}
                       </div>
                       <p className="mt-1 whitespace-pre-wrap">{m.text}</p>
                     </div>
@@ -249,7 +295,11 @@ export const StudentChatPage: React.FC<StudentChatPageProps> = ({ onBack, onOpen
               maxLength={1500}
               value={text}
               onChange={(e) => setText(e.target.value)}
-              placeholder="Write a message..."
+              placeholder={
+                mode === 'institution'
+                  ? 'Message the whole academy (alerts all students & staff)...'
+                  : 'Write a message...'
+              }
               className="flex-1 rounded-xl border border-border-input bg-input-bg text-heading px-3.5 py-2.5 text-sm focus:border-accent-sky focus:outline-none"
             />
             <button

@@ -187,7 +187,7 @@ export const StudentLiveClassPage: React.FC<StudentLiveClassPageProps> = ({
             Live Class Muted (Unpaid Fees)
           </h2>
           <p className="mt-1 text-sm text-muted">
-            Live Class access is muted while term tuition remains unpaid. Pay via Airtel Money ({academicSettings.supportPhone || '0753336009'}) and upload your screenshot to unlock.
+            Live Class access is muted while term tuition remains unpaid. Pay via Airtel Money ({academicSettings.supportPhone || '256753336009'}) and upload your screenshot to unlock.
           </p>
           {onOpenFees && (
             <button

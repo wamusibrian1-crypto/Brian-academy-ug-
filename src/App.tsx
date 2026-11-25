@@ -2,17 +2,20 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
-import React, { useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { SplashScreen } from './components/SplashScreen';
 import { PortalLanding } from './components/PortalLanding';
 import { StudentAuthView } from './components/StudentAuthView';
 import { AdminAuthView } from './components/AdminAuthView';
 import { StudentFeature, StudentShell, StudentTab } from './components/student/StudentShell';
 import { useStudentNotifications } from './hooks/useStudentNotifications';
+import { useStaffNotifications } from './hooks/useStaffNotifications';
+import { usePublicNotifications } from './hooks/usePublicNotifications';
+import { PublicNotificationPopout } from './components/PublicNotificationPopout';
 import { StudentDashboard } from './components/student/StudentDashboard';
 import { StudentCoursesView } from './components/student/StudentCoursesView';
 import { StudentProfileView } from './components/student/StudentProfileView';
@@ -29,6 +32,7 @@ import { AdminTeachersPage } from './components/admin/AdminTeachersPage';
 import { AdminClassesSubjectsPage } from './components/admin/AdminClassesSubjectsPage';
 import { AdminExaminationsPage } from './components/admin/AdminExaminationsPage';
 import { AdminFeesPage } from './components/admin/AdminFeesPage';
+import { AdminMonitoringPage } from './components/admin/AdminMonitoringPage';
 import { AdminReportsPage } from './components/admin/AdminReportsPage';
 import { AdminSettingsPage } from './components/admin/AdminSettingsPage';
 
@@ -37,11 +41,33 @@ const PlatformRouter: React.FC = () => {
   const [studentTab, setStudentTab] = useState<StudentTab>('home');
   const [studentFeature, setStudentFeature] = useState<StudentFeature>(null);
   const [adminSection, setAdminSection] = useState<AdminSection>('overview');
+  const [reportsTabOverride, setReportsTabOverride] = useState<'reports' | 'chat' | undefined>(
+    undefined
+  );
+  const [minSplashElapsed, setMinSplashElapsed] = useState(false);
+  const [splashDismissed, setSplashDismissed] = useState(false);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setMinSplashElapsed(true), 850);
+    return () => window.clearTimeout(t);
+  }, []);
+
+  const isLoading = !authReady || loadingProfile || !minSplashElapsed;
+
+  useEffect(() => {
+    if (!isLoading) {
+      const fade = window.setTimeout(() => setSplashDismissed(true), 450);
+      return () => window.clearTimeout(fade);
+    }
+  }, [isLoading]);
+
   const {
     notifications,
     unreadCount,
     unreadByFeature,
     seenIds,
+    latestAlert,
+    dismissLatestAlert,
     markAsRead,
     markFeatureRead,
     markAllRead,
@@ -50,102 +76,160 @@ const PlatformRouter: React.FC = () => {
     requestBrowserPermission,
   } = useStudentNotifications();
 
-  if (!authReady || loadingProfile) {
+  const staffNotifications = useStaffNotifications();
+  const isUnauthenticated = authReady && !loadingProfile && role === 'none';
+  const publicNotifications = usePublicNotifications(isUnauthenticated);
+
+  const handleSelectAdminSection = (section: AdminSection, openChatTab?: boolean) => {
+    setAdminSection(section);
+    if (section === 'reports') {
+      setReportsTabOverride(openChatTab ? 'chat' : undefined);
+    } else {
+      setReportsTabOverride(undefined);
+    }
+  };
+
+  const renderView = () => {
+    if (!authReady || loadingProfile) {
+      return null;
+    }
+
+    // 1. Authenticated Student Portal
+    if (role === 'student') {
+      return (
+        <StudentShell
+          activeTab={studentTab}
+          activeFeature={studentFeature}
+          onSelectTab={setStudentTab}
+          onSelectFeature={setStudentFeature}
+          notifications={notifications}
+          unreadCount={unreadCount}
+          seenIds={seenIds}
+          latestAlert={latestAlert}
+          onDismissLatestAlert={dismissLatestAlert}
+          onMarkRead={markAsRead}
+          onMarkFeatureRead={markFeatureRead}
+          onMarkAllRead={markAllRead}
+          browserPermission={browserPermission}
+          supportsBrowserNotifications={supportsBrowserNotifications}
+          onRequestBrowserPermission={requestBrowserPermission}
+        >
+          {studentFeature === 'live-class' ? (
+            <StudentLiveClassPage
+              onBack={() => setStudentFeature(null)}
+              onOpenFees={() => setStudentFeature('fees')}
+            />
+          ) : studentFeature === 'fees' ? (
+            <StudentFeesPage onBack={() => setStudentFeature(null)} />
+          ) : studentFeature === 'study-material' ? (
+            <StudentMaterialsPage onBack={() => setStudentFeature(null)} />
+          ) : studentFeature === 'test' ? (
+            <StudentAssessmentsPage kind="test" onBack={() => setStudentFeature(null)} />
+          ) : studentFeature === 'homework' ? (
+            <StudentAssessmentsPage kind="homework" onBack={() => setStudentFeature(null)} />
+          ) : studentFeature === 'chat' ? (
+            <StudentChatPage
+              onBack={() => setStudentFeature(null)}
+              onOpenFees={() => setStudentFeature('fees')}
+            />
+          ) : studentFeature === 'help' ? (
+            <StudentHelpPage onBack={() => setStudentFeature(null)} />
+          ) : studentTab === 'courses' ? (
+            <StudentCoursesView onOpenFeature={(f) => setStudentFeature(f)} />
+          ) : studentTab === 'profile' ? (
+            <StudentProfileView />
+          ) : (
+            <StudentDashboard
+              onOpenFeature={(f) => setStudentFeature(f)}
+              unreadCounts={unreadByFeature}
+            />
+          )}
+        </StudentShell>
+      );
+    }
+
+    // 2. Authenticated Administrator / Teacher Portal
+    if (role === 'admin' || role === 'teacher') {
+      const isAdmin = role === 'admin';
+      return (
+        <AdminShell
+          activeSection={adminSection}
+          onSelectSection={handleSelectAdminSection}
+          notifications={staffNotifications.notifications}
+          unreadCount={staffNotifications.unreadCount}
+          seenIds={staffNotifications.seenIds}
+          latestAlert={staffNotifications.latestAlert}
+          onDismissLatestAlert={staffNotifications.dismissLatestAlert}
+          onMarkRead={staffNotifications.markAsRead}
+          onMarkAllRead={staffNotifications.markAllRead}
+          browserPermission={staffNotifications.browserPermission}
+          supportsBrowserNotifications={staffNotifications.supportsBrowserNotifications}
+          onRequestBrowserPermission={staffNotifications.requestBrowserPermission}
+        >
+          {adminSection === 'students' && isAdmin ? (
+            <AdminStudentsPage />
+          ) : adminSection === 'teachers' && isAdmin ? (
+            <AdminTeachersPage />
+          ) : adminSection === 'classes' ? (
+            <AdminClassesSubjectsPage />
+          ) : adminSection === 'examinations' ? (
+            <AdminExaminationsPage />
+          ) : adminSection === 'fees' && isAdmin ? (
+            <AdminFeesPage />
+          ) : adminSection === 'monitoring' && isAdmin ? (
+            <AdminMonitoringPage />
+          ) : adminSection === 'reports' ? (
+            <AdminReportsPage initialTab={reportsTabOverride} />
+          ) : adminSection === 'settings' && isAdmin ? (
+            <AdminSettingsPage />
+          ) : (
+            <AdminDashboard onSelectSection={(s) => handleSelectAdminSection(s)} />
+          )}
+        </AdminShell>
+      );
+    }
+
+    // 3. Unauthenticated Portal Entry Views
+    if (portalIntent === 'student') {
+      return <StudentAuthView />;
+    }
+    if (portalIntent === 'admin') {
+      return <AdminAuthView />;
+    }
+
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-canvas p-6">
-        <Loader2 className="h-8 w-8 animate-spin text-accent-sky" />
-        <p className="mt-3 text-sm font-medium text-muted">Loading BRIAN ACADEMY UG...</p>
-      </div>
+      <PortalLanding
+        onSelectPortal={setPortalIntent}
+        publicAlerts={{
+          notifications: publicNotifications.notifications,
+          unreadCount: publicNotifications.unreadCount,
+          seenIds: publicNotifications.seenIds,
+          onMarkRead: publicNotifications.markAsRead,
+          onMarkAllRead: publicNotifications.markAllRead,
+          browserPermission: publicNotifications.browserPermission,
+          supportsBrowserNotifications: publicNotifications.supportsBrowserNotifications,
+          onRequestBrowserPermission: publicNotifications.requestBrowserPermission,
+        }}
+      />
     );
-  }
+  };
 
-  // 1. Authenticated Student Portal
-  if (role === 'student') {
-    return (
-      <StudentShell
-        activeTab={studentTab}
-        activeFeature={studentFeature}
-        onSelectTab={setStudentTab}
-        onSelectFeature={setStudentFeature}
-        notifications={notifications}
-        unreadCount={unreadCount}
-        seenIds={seenIds}
-        onMarkRead={markAsRead}
-        onMarkFeatureRead={markFeatureRead}
-        onMarkAllRead={markAllRead}
-        browserPermission={browserPermission}
-        supportsBrowserNotifications={supportsBrowserNotifications}
-        onRequestBrowserPermission={requestBrowserPermission}
-      >
-        {studentFeature === 'live-class' ? (
-          <StudentLiveClassPage
-            onBack={() => setStudentFeature(null)}
-            onOpenFees={() => setStudentFeature('fees')}
-          />
-        ) : studentFeature === 'fees' ? (
-          <StudentFeesPage onBack={() => setStudentFeature(null)} />
-        ) : studentFeature === 'study-material' ? (
-          <StudentMaterialsPage onBack={() => setStudentFeature(null)} />
-        ) : studentFeature === 'test' ? (
-          <StudentAssessmentsPage kind="test" onBack={() => setStudentFeature(null)} />
-        ) : studentFeature === 'homework' ? (
-          <StudentAssessmentsPage kind="homework" onBack={() => setStudentFeature(null)} />
-        ) : studentFeature === 'chat' ? (
-          <StudentChatPage
-            onBack={() => setStudentFeature(null)}
-            onOpenFees={() => setStudentFeature('fees')}
-          />
-        ) : studentFeature === 'help' ? (
-          <StudentHelpPage onBack={() => setStudentFeature(null)} />
-        ) : studentTab === 'courses' ? (
-          <StudentCoursesView onOpenFeature={(f) => setStudentFeature(f)} />
-        ) : studentTab === 'profile' ? (
-          <StudentProfileView />
-        ) : (
-          <StudentDashboard
-            onOpenFeature={(f) => setStudentFeature(f)}
-            unreadCounts={unreadByFeature}
-          />
-        )}
-      </StudentShell>
-    );
-  }
-
-  // 2. Authenticated Administrator / Teacher Portal
-  if (role === 'admin' || role === 'teacher') {
-    const isAdmin = role === 'admin';
-    return (
-      <AdminShell activeSection={adminSection} onSelectSection={setAdminSection}>
-        {adminSection === 'students' && isAdmin ? (
-          <AdminStudentsPage />
-        ) : adminSection === 'teachers' && isAdmin ? (
-          <AdminTeachersPage />
-        ) : adminSection === 'classes' ? (
-          <AdminClassesSubjectsPage />
-        ) : adminSection === 'examinations' ? (
-          <AdminExaminationsPage />
-        ) : adminSection === 'fees' && isAdmin ? (
-          <AdminFeesPage />
-        ) : adminSection === 'reports' ? (
-          <AdminReportsPage />
-        ) : adminSection === 'settings' && isAdmin ? (
-          <AdminSettingsPage />
-        ) : (
-          <AdminDashboard onSelectSection={setAdminSection} />
-        )}
-      </AdminShell>
-    );
-  }
-
-  // 3. Unauthenticated Portal Entry Views
-  if (portalIntent === 'student') {
-    return <StudentAuthView />;
-  }
-  if (portalIntent === 'admin') {
-    return <AdminAuthView />;
-  }
-
-  return <PortalLanding onSelectPortal={setPortalIntent} />;
+  return (
+    <>
+      {renderView()}
+      {isUnauthenticated && (
+        <PublicNotificationPopout
+          alert={publicNotifications.latestPopout}
+          onDismiss={publicNotifications.dismissLatestPopout}
+          onSignInStudent={() => setPortalIntent('student')}
+          browserPermission={publicNotifications.browserPermission}
+          supportsBrowserNotifications={publicNotifications.supportsBrowserNotifications}
+          onRequestBrowserPermission={publicNotifications.requestBrowserPermission}
+        />
+      )}
+      {!splashDismissed && <SplashScreen fadingOut={!isLoading} />}
+    </>
+  );
 };
 
 export default function App() {

@@ -1,46 +1,94 @@
-import React from 'react';
+import React, { useState } from 'react';
+import cambridgeCrestImg from '../assets/images/cambridge_academy_crest_1795600535904.jpg';
+
+const LOGO_SOURCES = [
+  cambridgeCrestImg,
+  '/official-logo-solid.png',
+  '/official-logo.png',
+];
+
+interface OfficialLogoProps {
+  className?: string;
+  alt?: string;
+  solid?: boolean;
+}
+
+/**
+ * Renders the exact official BRIAN ACADEMY UG Cambridge-style heraldic crest emblem without cropping or distortion.
+ */
+export const OfficialLogo: React.FC<OfficialLogoProps> = ({
+  className = 'h-24 w-24',
+  alt = 'BRIAN ACADEMY UG Official Crest — Learn. Discover. Excel.',
+  solid = false,
+}) => {
+  const [srcIdx, setSrcIdx] = useState(solid ? 0 : 0);
+  const currentSrc = LOGO_SOURCES[Math.min(srcIdx, LOGO_SOURCES.length - 1)];
+
+  return (
+    <img
+      src={currentSrc}
+      alt={alt}
+      referrerPolicy="no-referrer"
+      onError={() => {
+        setSrcIdx((prev) => (prev < LOGO_SOURCES.length - 1 ? prev + 1 : prev));
+      }}
+      className={`object-contain select-none shrink-0 ${className}`}
+    />
+  );
+};
 
 interface BrandMarkProps {
   size?: 'sm' | 'md' | 'lg';
   light?: boolean;
+  showMotto?: boolean;
 }
 
-export const BrandMark: React.FC<BrandMarkProps> = ({ size = 'md', light = false }) => {
-  const iconDims = size === 'sm' ? 'h-8 w-8' : size === 'lg' ? 'h-11 w-11' : 'h-9 w-9';
-  const textSize = size === 'sm' ? 'text-base' : size === 'lg' ? 'text-xl' : 'text-lg';
+/**
+ * Compact responsive navigation / header brand mark featuring the official logo and wordmark.
+ */
+export const BrandMark: React.FC<BrandMarkProps> = ({
+  size = 'md',
+  light = false,
+  showMotto = false,
+}) => {
+  const logoFrame =
+    size === 'sm'
+      ? 'h-9 w-9 p-0.5'
+      : size === 'lg'
+        ? 'h-12 w-12 p-0.5'
+        : 'h-10 w-10 p-0.5';
+  const textSize = size === 'sm' ? 'text-sm sm:text-base' : size === 'lg' ? 'text-lg sm:text-xl' : 'text-base sm:text-lg';
 
   return (
     <div className="inline-flex items-center gap-2.5 whitespace-nowrap shrink-0">
-      <svg
-        viewBox="0 0 64 64"
-        fill="none"
-        className={`${iconDims} shrink-0 rounded-[22%] ring-1 ring-[#D4AF37]/30`}
-        aria-hidden="true"
+      <div
+        className={`${logoFrame} flex items-center justify-center rounded-xl bg-white shadow-xs ring-1 ${
+          light ? 'ring-[#EAB308]/55' : 'ring-[#124299]/15 dark:ring-[#EAB308]/35'
+        } shrink-0`}
       >
-        <rect width="64" height="64" rx="14" fill="#0B1F3A" />
-        <path
-          d="M32 10L50 18V33C50 43.5 42.2 51.4 32 54C21.8 51.4 14 43.5 14 33V18L32 10Z"
-          fill="#102D54"
-          stroke="#D4AF37"
-          strokeWidth="2.5"
-        />
-        <path
-          d="M21 28C24.5 25.8 28.5 25.8 32 28.2C35.5 25.8 39.5 25.8 43 28V41.5C39.5 39.6 35.5 39.6 32 41.8C28.5 39.6 24.5 39.6 21 41.5V28Z"
-          fill="#FFFFFF"
-        />
-        <path d="M32 28.2V41.8" stroke="#0EA5E9" strokeWidth="2.2" strokeLinecap="round" />
-        <circle cx="32" cy="21.5" r="3" fill="#0EA5E9" />
-      </svg>
-      <span
-        className={`brand-wordmark font-extrabold ${textSize} ${
-          light ? 'text-white' : 'text-heading'
-        }`}
-      >
-        BRIAN ACADEMY{' '}
-        <span className={light ? 'text-[#E5C14A]' : 'text-accent-gold-text'}>
-          UG
+        <OfficialLogo className="h-full w-full" />
+      </div>
+      <div className="flex flex-col leading-tight">
+        <span
+          className={`brand-wordmark font-extrabold ${textSize} ${
+            light ? 'text-white' : 'text-heading'
+          }`}
+        >
+          BRIAN ACADEMY{' '}
+          <span className={light ? 'text-[#FACC15]' : 'text-accent-gold-text'}>
+            UG
+          </span>
         </span>
-      </span>
+        {showMotto && (
+          <span
+            className={`text-[9px] font-bold tracking-[0.16em] uppercase ${
+              light ? 'text-sky-200' : 'text-accent-sky-text'
+            }`}
+          >
+            LEARN. DISCOVER. EXCEL.
+          </span>
+        )}
+      </div>
     </div>
   );
 };

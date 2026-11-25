@@ -53,8 +53,15 @@ service cloud.firestore {
       return isAdmin() || isActiveTeacher();
     }
 
+    function isTeacherAssignedToSubject(subj) {
+      return isActiveTeacher() && (
+        subj in get(/databases/$(database)/documents/teachers/$(request.auth.uid)).data.subjects ||
+        get(/databases/$(database)/documents/teachers/$(request.auth.uid)).data.subjects.size() == 0
+      );
+    }
+
     function isActiveStudent() {
-      return isEmailVerified() &&
+      return isSignedIn() &&
         exists(/databases/$(database)/documents/students/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/students/$(request.auth.uid)).data.status != 'suspended';
     }
@@ -67,8 +74,36 @@ service cloud.firestore {
       return val is string && val in ['S1', 'S2', 'S3', 'S4', 'S5', 'S6'];
     }
 
+    function isValidClassOrAll(val) {
+      return val is string && val in ['ALL', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6'];
+    }
+
     function isValidSubject(val) {
       return val is string && val in ['MTC', 'Physics', 'Chemistry', 'Biology'];
+    }
+
+    function canStudentCreateSubmission(asmtData) {
+      return (!('closed' in asmtData) || asmtData.closed == false) && (
+        !('allowLateSubmissions' in asmtData) ||
+        asmtData.allowLateSubmissions == true ||
+        !('dueTimestampMs' in asmtData) ||
+        asmtData.dueTimestampMs == 0 ||
+        request.time.toMillis() <= asmtData.dueTimestampMs
+      );
+    }
+
+    function canStudentReplaceSubmission(asmtData, ex) {
+      return (!('closed' in asmtData) || asmtData.closed == false) && (
+        ex.status == 'returned' || (
+          ex.status == 'submitted' &&
+          'allowResubmit' in asmtData &&
+          asmtData.allowResubmit == true && (
+            !('dueTimestampMs' in asmtData) ||
+            asmtData.dueTimestampMs == 0 ||
+            request.time.toMillis() <= asmtData.dueTimestampMs
+          )
+        )
+      );
     }
 
     // 2. Validation Blueprints
@@ -199,28 +234,59 @@ service cloud.firestore {
         data.joinedAt is timestamp;
     }
 
-    function isValidStudyMaterial(data) {
-      return data.keys().hasAll(['id', 'title', 'description', 'classLevel', 'subject', 'materialType', 'fileUrl', 'inlineContent', 'fileName', 'uploadedBy', 'uploaderName', 'published', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['id', 'title', 'description', 'classLevel', 'subject', 'materialType', 'fileUrl', 'inlineContent', 'fileName', 'uploadedBy', 'uploaderName', 'published', 'createdAt', 'updatedAt']) &&
+    function isValidMaterialFolder(data) {
+      return data.keys().hasAll(['id', 'name', 'subject', 'parentFolderId', 'classLevel', 'createdBy', 'creatorName', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'name', 'subject', 'parentFolderId', 'classLevel', 'createdBy', 'creatorName', 'createdAt', 'updatedAt']) &&
         isValidId(data.id) &&
-        data.title is string && data.title.size() >= 2 && data.title.size() <= 160 &&
-        data.description is string && data.description.size() <= 1500 &&
-        isValidClassLevel(data.classLevel) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
         isValidSubject(data.subject) &&
-        data.materialType in ['pdf', 'document', 'image', 'presentation', 'revision', 'video'] &&
-        data.fileUrl is string && data.fileUrl.size() <= 1000 &&
-        data.inlineContent is string && data.inlineContent.size() <= 20000 &&
-        data.fileName is string && data.fileName.size() <= 200 &&
-        isValidId(data.uploadedBy) &&
-        data.uploaderName is string && data.uploaderName.size() >= 1 && data.uploaderName.size() <= 120 &&
-        data.published is bool &&
+        data.parentFolderId is string && data.parentFolderId.size() <= 128 &&
+        isValidClassOrAll(data.classLevel) &&
+        isValidId(data.createdBy) &&
+        data.creatorName is string && data.creatorName.size() >= 1 && data.creatorName.size() <= 120 &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
     }
 
+    function isValidStudyMaterial(data) {
+      return data.keys().hasAll(['id', 'title', 'description', 'classLevel', 'subject', 'materialType', 'fileUrl', 'inlineContent', 'fileName', 'uploadedBy', 'uploaderName', 'published', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'title', 'description', 'classLevel', 'subject', 'materialType', 'fileUrl', 'inlineContent', 'fileName', 'uploadedBy', 'uploaderName', 'published', 'createdAt', 'updatedAt', 'views', 'folderId', 'topic', 'chapter', 'fileFormat', 'fileSizeBytes']) &&
+        isValidId(data.id) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 160 &&
+        data.description is string && data.description.size() <= 1500 &&
+        isValidClassOrAll(data.classLevel) &&
+        isValidSubject(data.subject) &&
+        data.materialType in ['pdf', 'word', 'powerpoint', 'excel', 'document', 'image', 'presentation', 'revision', 'video', 'other'] &&
+        data.fileUrl is string && data.fileUrl.size() <= 900000 &&
+        data.inlineContent is string && data.inlineContent.size() <= 20000 &&
+        data.fileName is string && data.fileName.size() <= 200 &&
+        (!('folderId' in data) || (data.folderId is string && data.folderId.size() <= 128)) &&
+        (!('topic' in data) || (data.topic is string && data.topic.size() <= 160)) &&
+        (!('chapter' in data) || (data.chapter is string && data.chapter.size() <= 120)) &&
+        (!('fileFormat' in data) || (data.fileFormat is string && data.fileFormat.size() <= 24)) &&
+        (!('fileSizeBytes' in data) || (data.fileSizeBytes is number && data.fileSizeBytes >= 0 && data.fileSizeBytes <= 30000000)) &&
+        isValidId(data.uploadedBy) &&
+        data.uploaderName is string && data.uploaderName.size() >= 1 && data.uploaderName.size() <= 120 &&
+        data.published is bool &&
+        (!('views' in data) || (data.views is int && data.views >= 0 && data.views <= 10000000)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidMaterialView(data) {
+      return data.keys().hasAll(['materialId', 'viewerUid', 'viewerName', 'viewerRole', 'classLevel', 'viewedAt']) &&
+        data.keys().hasOnly(['materialId', 'viewerUid', 'viewerName', 'viewerRole', 'classLevel', 'viewedAt']) &&
+        isValidId(data.materialId) &&
+        isValidId(data.viewerUid) &&
+        data.viewerName is string && data.viewerName.size() >= 1 && data.viewerName.size() <= 120 &&
+        data.viewerRole in ['student', 'teacher', 'admin'] &&
+        isValidClassOrAll(data.classLevel) &&
+        data.viewedAt is timestamp;
+    }
+
     function isValidAssessment(data) {
       return data.keys().hasAll(['id', 'kind', 'title', 'instructions', 'classLevel', 'subject', 'durationMinutes', 'totalMarks', 'dueDate', 'questions', 'attachmentUrl', 'attachmentName', 'attachmentType', 'published', 'resultsPublished', 'createdBy', 'creatorName', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['id', 'kind', 'title', 'instructions', 'classLevel', 'subject', 'durationMinutes', 'totalMarks', 'dueDate', 'questions', 'attachmentUrl', 'attachmentName', 'attachmentType', 'published', 'resultsPublished', 'createdBy', 'creatorName', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'kind', 'title', 'instructions', 'classLevel', 'subject', 'durationMinutes', 'totalMarks', 'dueDate', 'questions', 'attachmentUrl', 'attachmentName', 'attachmentType', 'published', 'resultsPublished', 'createdBy', 'creatorName', 'createdAt', 'updatedAt', 'dueTimestampMs', 'topic', 'materialId', 'materialTitle', 'allowLateSubmissions', 'allowResubmit', 'allowMultipleFiles', 'allowTypedAnswers', 'closed']) &&
         isValidId(data.id) &&
         data.kind in ['test', 'homework'] &&
         data.title is string && data.title.size() >= 2 && data.title.size() <= 160 &&
@@ -230,10 +296,19 @@ service cloud.firestore {
         data.durationMinutes is number && data.durationMinutes >= 5 && data.durationMinutes <= 300 &&
         data.totalMarks is number && data.totalMarks >= 1 && data.totalMarks <= 500 &&
         data.dueDate is string && data.dueDate.size() <= 40 &&
-        data.questions is list && data.questions.size() >= 1 && data.questions.size() <= 50 && data.questions[0] is map &&
-        data.attachmentUrl is string && data.attachmentUrl.size() <= 1000 &&
+        (!('dueTimestampMs' in data) || (data.dueTimestampMs is number && data.dueTimestampMs >= 0)) &&
+        (!('topic' in data) || (data.topic is string && data.topic.size() <= 160)) &&
+        (!('materialId' in data) || (data.materialId is string && data.materialId.size() <= 128)) &&
+        (!('materialTitle' in data) || (data.materialTitle is string && data.materialTitle.size() <= 160)) &&
+        (!('allowLateSubmissions' in data) || data.allowLateSubmissions is bool) &&
+        (!('allowResubmit' in data) || data.allowResubmit is bool) &&
+        (!('allowMultipleFiles' in data) || data.allowMultipleFiles is bool) &&
+        (!('allowTypedAnswers' in data) || data.allowTypedAnswers is bool) &&
+        (!('closed' in data) || data.closed is bool) &&
+        data.questions is list && data.questions.size() >= 0 && data.questions.size() <= 50 && (data.questions.size() == 0 || data.questions[0] is map) &&
+        data.attachmentUrl is string && data.attachmentUrl.size() <= 900000 &&
         data.attachmentName is string && data.attachmentName.size() <= 200 &&
-        data.attachmentType in ['', 'pdf', 'photo'] &&
+        data.attachmentType in ['', 'pdf', 'photo', 'doc', 'other'] &&
         data.published is bool &&
         data.resultsPublished is bool &&
         isValidId(data.createdBy) &&
@@ -252,7 +327,7 @@ service cloud.firestore {
 
     function isValidSubmission(data) {
       return data.keys().hasAll(['id', 'assessmentId', 'assessmentTitle', 'kind', 'classLevel', 'subject', 'studentId', 'studentName', 'studentNumber', 'answers', 'questionScores', 'totalScore', 'maxMarks', 'grade', 'teacherRemarks', 'attachmentUrl', 'attachmentName', 'attachmentType', 'status', 'submittedAt', 'updatedAt']) &&
-        data.keys().hasOnly(['id', 'assessmentId', 'assessmentTitle', 'kind', 'classLevel', 'subject', 'studentId', 'studentName', 'studentNumber', 'answers', 'questionScores', 'totalScore', 'maxMarks', 'grade', 'teacherRemarks', 'attachmentUrl', 'attachmentName', 'attachmentType', 'status', 'submittedAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'assessmentId', 'assessmentTitle', 'kind', 'classLevel', 'subject', 'studentId', 'studentName', 'studentNumber', 'answers', 'questionScores', 'totalScore', 'maxMarks', 'grade', 'teacherRemarks', 'attachmentUrl', 'attachmentName', 'attachmentType', 'status', 'submittedAt', 'updatedAt', 'writtenAnswer', 'corrections', 'attachments', 'isLate', 'gradedBy', 'gradedByName']) &&
         isValidId(data.id) &&
         isValidId(data.assessmentId) &&
         data.assessmentTitle is string && data.assessmentTitle.size() >= 1 && data.assessmentTitle.size() <= 160 &&
@@ -263,15 +338,21 @@ service cloud.firestore {
         data.studentName is string && data.studentName.size() >= 2 && data.studentName.size() <= 120 &&
         data.studentNumber is string && data.studentNumber.size() <= 40 &&
         data.answers is list && data.answers.size() <= 50 && (data.answers.size() == 0 || data.answers[0] is map) &&
+        (!('writtenAnswer' in data) || (data.writtenAnswer is string && data.writtenAnswer.size() <= 10000)) &&
         data.questionScores is list && data.questionScores.size() <= 50 && (data.questionScores.size() == 0 || data.questionScores[0] is map) &&
         data.totalScore is number && data.totalScore >= 0 && data.totalScore <= 500 &&
         data.maxMarks is number && data.maxMarks >= 1 && data.maxMarks <= 500 &&
         data.grade is string && data.grade.size() <= 20 &&
         data.teacherRemarks is string && data.teacherRemarks.size() <= 1000 &&
-        data.attachmentUrl is string && data.attachmentUrl.size() <= 1000 &&
+        (!('corrections' in data) || (data.corrections is string && data.corrections.size() <= 2000)) &&
+        data.attachmentUrl is string && data.attachmentUrl.size() <= 900000 &&
         data.attachmentName is string && data.attachmentName.size() <= 200 &&
-        data.attachmentType in ['', 'pdf', 'photo'] &&
-        data.status in ['submitted', 'graded', 'published'] &&
+        data.attachmentType in ['', 'pdf', 'photo', 'doc', 'other'] &&
+        (!('attachments' in data) || (data.attachments is list && data.attachments.size() <= 10 && (data.attachments.size() == 0 || data.attachments[0] is map))) &&
+        (!('isLate' in data) || data.isLate is bool) &&
+        (!('gradedBy' in data) || (data.gradedBy is string && data.gradedBy.size() <= 128)) &&
+        (!('gradedByName' in data) || (data.gradedByName is string && data.gradedByName.size() <= 120)) &&
+        data.status in ['submitted', 'under_review', 'graded', 'published', 'returned'] &&
         data.submittedAt is timestamp &&
         data.updatedAt is timestamp;
     }
@@ -299,7 +380,7 @@ service cloud.firestore {
         data.keys().hasOnly(['id', 'channelId', 'classLevel', 'subject', 'senderId', 'senderName', 'senderRole', 'recipientStudentId', 'text', 'createdAt']) &&
         isValidId(data.id) &&
         data.channelId is string && data.channelId.size() >= 2 && data.channelId.size() <= 80 &&
-        isValidClassLevel(data.classLevel) &&
+        isValidClassOrAll(data.classLevel) &&
         data.subject is string && data.subject.size() >= 1 && data.subject.size() <= 40 &&
         isValidId(data.senderId) &&
         data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 120 &&
@@ -343,7 +424,7 @@ service cloud.firestore {
         isValidId(data.id) &&
         data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
         data.caption is string && data.caption.size() <= 300 &&
-        data.imageUrl is string && data.imageUrl.size() >= 5 && data.imageUrl.size() <= 1000 &&
+        data.imageUrl is string && data.imageUrl.size() >= 5 && data.imageUrl.size() <= 900000 &&
         data.active is bool &&
         isValidId(data.createdBy) &&
         data.createdAt is timestamp;
@@ -383,11 +464,87 @@ service cloud.firestore {
         data.paymentMethod in ['MTN MoMo', 'Airtel Money', 'Bank Deposit', 'Cash Receipt'] &&
         data.referenceCode is string && data.referenceCode.size() >= 1 && data.referenceCode.size() <= 80 &&
         data.payerPhone is string && data.payerPhone.size() <= 40 &&
-        data.receiptUrl is string && data.receiptUrl.size() <= 250000 &&
+        data.receiptUrl is string && data.receiptUrl.size() <= 900000 &&
         data.adminNote is string && data.adminNote.size() <= 400 &&
         data.status in ['pending', 'approved', 'rejected'] &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
+    }
+
+    function isValidFileUpload(data) {
+      return data.keys().hasAll(['id', 'fileName', 'mimeType', 'sizeBytes', 'chunkCount', 'scope', 'uploadedBy', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'fileName', 'mimeType', 'sizeBytes', 'chunkCount', 'scope', 'uploadedBy', 'createdAt']) &&
+        isValidId(data.id) &&
+        data.fileName is string && data.fileName.size() >= 1 && data.fileName.size() <= 200 &&
+        data.mimeType is string && data.mimeType.size() >= 3 && data.mimeType.size() <= 120 &&
+        data.sizeBytes is int && data.sizeBytes >= 1 && data.sizeBytes <= 30000000 &&
+        data.chunkCount is int && data.chunkCount >= 1 && data.chunkCount <= 60 &&
+        data.scope in ['material', 'assessment', 'submission', 'fee', 'advert'] &&
+        isValidId(data.uploadedBy) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidFileChunk(data) {
+      return data.keys().hasAll(['id', 'fileId', 'index', 'data', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'fileId', 'index', 'data', 'createdAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.fileId) &&
+        data.index is int && data.index >= 0 && data.index < 60 &&
+        data.data is string && data.data.size() >= 1 && data.data.size() <= 700000 &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidPublicNotification(data) {
+      return data.keys().hasAll(['id', 'kind', 'title', 'summary', 'subject', 'classLevel', 'active', 'createdBy', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'kind', 'title', 'summary', 'subject', 'classLevel', 'active', 'createdBy', 'createdAt']) &&
+        isValidId(data.id) &&
+        data.kind in ['material', 'assessment', 'submission', 'chat', 'announcement'] &&
+        data.title is string && data.title.size() >= 2 && data.title.size() <= 140 &&
+        data.summary is string && data.summary.size() >= 2 && data.summary.size() <= 240 &&
+        data.subject is string && data.subject.size() >= 1 && data.subject.size() <= 40 &&
+        isValidClassOrAll(data.classLevel) &&
+        data.active is bool &&
+      isValidId(data.createdBy) &&
+      data.createdAt is timestamp;
+    }
+
+    function isValidHomepageConfig(data) {
+      return data.keys().hasAll([
+        'heroEyebrow', 'heroTitle', 'heroSubtitle', 'motto',
+        'advertsEnabled', 'appDownloadEnabled', 'appDownloadTitle',
+        'appDownloadDescription', 'androidApkUrl', 'admissionsEnabled',
+        'admissionsTitle', 'admissionsSummary', 'admissionsRequirements',
+        'aboutBadge', 'aboutTitle', 'aboutDescription',
+        'contactEmail', 'contactPhone', 'updatedBy', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'heroEyebrow', 'heroTitle', 'heroSubtitle', 'motto',
+        'advertsEnabled', 'appDownloadEnabled', 'appDownloadTitle',
+        'appDownloadDescription', 'androidApkUrl', 'admissionsEnabled',
+        'admissionsTitle', 'admissionsSummary', 'admissionsRequirements',
+        'aboutBadge', 'aboutTitle', 'aboutDescription',
+        'contactEmail', 'contactPhone', 'updatedBy', 'updatedAt'
+      ]) &&
+      data.heroEyebrow is string && data.heroEyebrow.size() >= 1 && data.heroEyebrow.size() <= 100 &&
+      data.heroTitle is string && data.heroTitle.size() >= 2 && data.heroTitle.size() <= 140 &&
+      data.heroSubtitle is string && data.heroSubtitle.size() <= 500 &&
+      data.motto is string && data.motto.size() >= 2 && data.motto.size() <= 160 &&
+      data.advertsEnabled is bool &&
+      data.appDownloadEnabled is bool &&
+      data.appDownloadTitle is string && data.appDownloadTitle.size() >= 2 && data.appDownloadTitle.size() <= 140 &&
+      data.appDownloadDescription is string && data.appDownloadDescription.size() <= 800 &&
+      data.androidApkUrl is string && data.androidApkUrl.size() <= 500 &&
+      data.admissionsEnabled is bool &&
+      data.admissionsTitle is string && data.admissionsTitle.size() >= 2 && data.admissionsTitle.size() <= 160 &&
+      data.admissionsSummary is string && data.admissionsSummary.size() <= 1200 &&
+      data.admissionsRequirements is string && data.admissionsRequirements.size() <= 2000 &&
+      data.aboutBadge is string && data.aboutBadge.size() >= 1 && data.aboutBadge.size() <= 100 &&
+      data.aboutTitle is string && data.aboutTitle.size() >= 2 && data.aboutTitle.size() <= 200 &&
+      data.aboutDescription is string && data.aboutDescription.size() <= 1500 &&
+      data.contactEmail is string && data.contactEmail.size() >= 3 && data.contactEmail.size() <= 120 &&
+      data.contactPhone is string && data.contactPhone.size() >= 3 && data.contactPhone.size() <= 40 &&
+      isValidId(data.updatedBy) &&
+      data.updatedAt is timestamp;
     }
 
     // 3. Collection Rules
@@ -466,13 +623,13 @@ service cloud.firestore {
     match /students/{uid} {
       allow get: if isValidId(uid) && isSignedIn() && (request.auth.uid == uid || isStaff());
       allow list: if isStaff() || (isSignedIn() && existing().uid == request.auth.uid);
-      allow create: if isValidId(uid) && isEmailVerified() && isValidStudentProfile(incoming()) &&
+      allow create: if isValidId(uid) && isSignedIn() && isValidStudentProfile(incoming()) &&
         incoming().uid == uid &&
         incoming().role == 'student' &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time &&
         (isAdmin() || (uid == request.auth.uid && incoming().status == 'pending'));
-      allow update: if isValidId(uid) && isEmailVerified() && isValidStudentProfile(incoming()) &&
+      allow update: if isValidId(uid) && isSignedIn() && isValidStudentProfile(incoming()) &&
         incoming().uid == existing().uid &&
         incoming().role == 'student' &&
         incoming().createdAt == existing().createdAt &&
@@ -543,21 +700,82 @@ service cloud.firestore {
       }
     }
 
+    match /materialFolders/{folderId} {
+      allow get: if isValidId(folderId) && (isStaff() || isActiveStudent());
+      allow list: if isStaff() || isActiveStudent();
+      allow create: if isValidId(folderId) && isStaff() && isValidMaterialFolder(incoming()) &&
+        incoming().id == folderId &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (isAdmin() || isTeacherAssignedToSubject(incoming().subject));
+      allow update: if isValidId(folderId) && isStaff() && isValidMaterialFolder(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (isAdmin() || existing().createdBy == request.auth.uid || isTeacherAssignedToSubject(existing().subject));
+      allow delete: if isValidId(folderId) && isStaff() &&
+        (isAdmin() || existing().createdBy == request.auth.uid || isTeacherAssignedToSubject(existing().subject));
+    }
+
     match /materials/{materialId} {
-      allow get: if isValidId(materialId) && (isStaff() || (isActiveStudent() && existing().published == true && existing().classLevel == studentClass()));
-      allow list: if isStaff() || (isActiveStudent() && existing().published == true && existing().classLevel == studentClass());
+      allow get: if isValidId(materialId) && (isStaff() || (isActiveStudent() && existing().published == true));
+      allow list: if isStaff() || (isActiveStudent() && existing().published == true);
       allow create: if isValidId(materialId) && isStaff() && isValidStudyMaterial(incoming()) &&
         incoming().id == materialId &&
         incoming().uploadedBy == request.auth.uid &&
         incoming().createdAt == request.time &&
-        incoming().updatedAt == request.time;
-      allow update: if isValidId(materialId) && isStaff() && isValidStudyMaterial(incoming()) &&
-        incoming().id == existing().id &&
-        incoming().uploadedBy == existing().uploadedBy &&
-        incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
-        (isAdmin() || existing().uploadedBy == request.auth.uid);
-      allow delete: if isValidId(materialId) && isStaff() && (isAdmin() || existing().uploadedBy == request.auth.uid);
+        (isAdmin() || isTeacherAssignedToSubject(incoming().subject));
+      allow update: if isValidId(materialId) && isSignedIn() && isValidStudyMaterial(incoming()) && (
+        (
+          isStaff() &&
+          (isAdmin() || existing().uploadedBy == request.auth.uid || isTeacherAssignedToSubject(existing().subject)) &&
+          incoming().id == existing().id &&
+          incoming().uploadedBy == existing().uploadedBy &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time
+        ) ||
+        (
+          isActiveStudent() &&
+          existing().published == true &&
+          incoming().id == existing().id &&
+          incoming().uploadedBy == existing().uploadedBy &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == existing().updatedAt &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['views']) &&
+          incoming().views is int &&
+          (
+            (!('views' in existing()) && incoming().views == 1) ||
+            ('views' in existing() && existing().views is int && incoming().views == existing().views + 1)
+          )
+        )
+      );
+      allow delete: if isValidId(materialId) && isStaff() &&
+        (isAdmin() || existing().uploadedBy == request.auth.uid || isTeacherAssignedToSubject(existing().subject));
+
+      match /views/{viewerUid} {
+        allow get: if isValidId(materialId) && isValidId(viewerUid) && (isStaff() || (isSignedIn() && request.auth.uid == viewerUid));
+        allow list: if isValidId(materialId) && (isStaff() || (isActiveStudent() && existing().viewerUid == request.auth.uid));
+        allow create: if isValidId(materialId) && isValidId(viewerUid) && isSignedIn() &&
+          (isActiveStudent() || isStaff()) &&
+          exists(/databases/$(database)/documents/materials/$(materialId)) &&
+          viewerUid == request.auth.uid &&
+          isValidMaterialView(incoming()) &&
+          incoming().materialId == materialId &&
+          incoming().viewerUid == request.auth.uid &&
+          incoming().viewedAt == request.time;
+        allow update: if isValidId(materialId) && isValidId(viewerUid) && isSignedIn() &&
+          (isActiveStudent() || isStaff()) &&
+          exists(/databases/$(database)/documents/materials/$(materialId)) &&
+          viewerUid == request.auth.uid &&
+          isValidMaterialView(incoming()) &&
+          incoming().materialId == existing().materialId &&
+          incoming().viewerUid == existing().viewerUid &&
+          incoming().viewedAt == request.time;
+        allow delete: if isValidId(materialId) && isValidId(viewerUid) && isAdmin();
+      }
     }
 
     match /assessments/{assessmentId} {
@@ -567,14 +785,16 @@ service cloud.firestore {
         incoming().id == assessmentId &&
         incoming().createdBy == request.auth.uid &&
         incoming().createdAt == request.time &&
-        incoming().updatedAt == request.time;
+        incoming().updatedAt == request.time &&
+        (isAdmin() || isTeacherAssignedToSubject(incoming().subject));
       allow update: if isValidId(assessmentId) && isStaff() && isValidAssessment(incoming()) &&
         incoming().id == existing().id &&
         incoming().createdBy == existing().createdBy &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
-        (isAdmin() || existing().createdBy == request.auth.uid);
-      allow delete: if isValidId(assessmentId) && isStaff() && (isAdmin() || existing().createdBy == request.auth.uid);
+        (isAdmin() || existing().createdBy == request.auth.uid || isTeacherAssignedToSubject(existing().subject));
+      allow delete: if isValidId(assessmentId) && isStaff() &&
+        (isAdmin() || existing().createdBy == request.auth.uid || isTeacherAssignedToSubject(existing().subject));
 
       match /private/{docId} {
         allow get, list: if isValidId(assessmentId) && isStaff();
@@ -598,15 +818,33 @@ service cloud.firestore {
         incoming().totalScore == 0 &&
         incoming().grade == '' &&
         incoming().teacherRemarks == '' &&
+        (!('corrections' in incoming()) || incoming().corrections == '') &&
         exists(/databases/$(database)/documents/assessments/$(incoming().assessmentId)) &&
+        canStudentCreateSubmission(get(/databases/$(database)/documents/assessments/$(incoming().assessmentId)).data) &&
         incoming().submittedAt == request.time &&
         incoming().updatedAt == request.time;
-      allow update: if isValidId(submissionId) && isStaff() && isValidSubmission(incoming()) &&
+      allow update: if isValidId(submissionId) && isValidSubmission(incoming()) &&
         incoming().id == existing().id &&
         incoming().assessmentId == existing().assessmentId &&
         incoming().studentId == existing().studentId &&
-        incoming().submittedAt == existing().submittedAt &&
-        incoming().updatedAt == request.time;
+        incoming().updatedAt == request.time && (
+          (
+            isStaff() &&
+            incoming().submittedAt == existing().submittedAt
+          ) ||
+          (
+            isActiveStudent() &&
+            existing().studentId == request.auth.uid &&
+            incoming().status == 'submitted' &&
+            incoming().totalScore == 0 &&
+            incoming().grade == '' &&
+            incoming().teacherRemarks == '' &&
+            (!('corrections' in incoming()) || incoming().corrections == '') &&
+            incoming().submittedAt == request.time &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['answers', 'writtenAnswer', 'attachmentUrl', 'attachmentName', 'attachmentType', 'attachments', 'status', 'isLate', 'submittedAt', 'updatedAt']) &&
+            canStudentReplaceSubmission(get(/databases/$(database)/documents/assessments/$(existing().assessmentId)).data, existing())
+          )
+        );
       allow delete: if isValidId(submissionId) && isAdmin();
     }
 
@@ -627,18 +865,27 @@ service cloud.firestore {
     match /chatMessages/{messageId} {
       allow get: if isValidId(messageId) && (
         isStaff() ||
-        (isActiveStudent() && existing().classLevel == studentClass() && (existing().senderId == request.auth.uid || existing().recipientStudentId == request.auth.uid || existing().recipientStudentId == ''))
+        (isActiveStudent() && (
+          (existing().classLevel == 'ALL' && existing().recipientStudentId == '') ||
+          (existing().classLevel == studentClass() && (existing().senderId == request.auth.uid || existing().recipientStudentId == request.auth.uid || existing().recipientStudentId == ''))
+        ))
       );
       allow list: if isStaff() || (
-        isActiveStudent() && existing().classLevel == studentClass() && (existing().senderId == request.auth.uid || existing().recipientStudentId == request.auth.uid || existing().recipientStudentId == '')
+        isActiveStudent() && (
+          (existing().classLevel == 'ALL' && existing().recipientStudentId == '') ||
+          (existing().classLevel == studentClass() && (existing().senderId == request.auth.uid || existing().recipientStudentId == request.auth.uid || existing().recipientStudentId == ''))
+        )
       );
-      allow create: if isValidId(messageId) && isEmailVerified() && isValidChatMessage(incoming()) &&
+      allow create: if isValidId(messageId) && isSignedIn() && isValidChatMessage(incoming()) &&
         incoming().id == messageId &&
         incoming().senderId == request.auth.uid &&
         incoming().createdAt == request.time && (
           (isAdmin() && incoming().senderRole == 'admin') ||
           (isActiveTeacher() && incoming().senderRole == 'teacher') ||
-          (isActiveStudent() && incoming().senderRole == 'student' && incoming().classLevel == studentClass() && (incoming().recipientStudentId == '' || incoming().recipientStudentId == request.auth.uid))
+          (isActiveStudent() && incoming().senderRole == 'student' && (
+            (incoming().classLevel == 'ALL' && incoming().channelId == 'institution_all' && incoming().recipientStudentId == '') ||
+            (incoming().classLevel == studentClass() && (incoming().recipientStudentId == '' || incoming().recipientStudentId == request.auth.uid))
+          ))
         );
       allow update: if false;
       allow delete: if isValidId(messageId) && isAdmin();
@@ -664,7 +911,7 @@ service cloud.firestore {
 
     match /activityLogs/{logId} {
       allow get, list: if isAdmin();
-      allow create: if isValidId(logId) && isEmailVerified() && isValidActivityLog(incoming()) &&
+      allow create: if isValidId(logId) && isSignedIn() && isValidActivityLog(incoming()) &&
         incoming().id == logId &&
         incoming().actorId == request.auth.uid &&
         incoming().createdAt == request.time && (
@@ -722,6 +969,56 @@ service cloud.firestore {
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time;
       allow delete: if isValidId(requestId) && isAdmin();
+    }
+
+    match /fileUploads/{fileId} {
+      allow get: if isValidId(fileId) && isSignedIn();
+      allow list: if isAdmin() || (isSignedIn() && existing().uploadedBy == request.auth.uid);
+      allow create: if isValidId(fileId) && isSignedIn() && (isActiveStudent() || isStaff()) &&
+        isValidFileUpload(incoming()) &&
+        incoming().id == fileId &&
+        incoming().uploadedBy == request.auth.uid &&
+        incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(fileId) && (isAdmin() || (isSignedIn() && existing().uploadedBy == request.auth.uid));
+
+      match /chunks/{chunkId} {
+        allow get: if isValidId(fileId) && isValidId(chunkId) && isSignedIn();
+        allow list: if isValidId(fileId) && isSignedIn() && existing().fileId == fileId;
+        allow create: if isValidId(fileId) && isValidId(chunkId) && isSignedIn() &&
+          (isActiveStudent() || isStaff()) &&
+          exists(/databases/$(database)/documents/fileUploads/$(fileId)) &&
+          get(/databases/$(database)/documents/fileUploads/$(fileId)).data.uploadedBy == request.auth.uid &&
+          isValidFileChunk(incoming()) &&
+          incoming().id == chunkId &&
+          incoming().fileId == fileId &&
+          incoming().createdAt == request.time;
+        allow update: if false;
+        allow delete: if isValidId(fileId) && isValidId(chunkId) && isAdmin();
+      }
+    }
+
+    match /publicNotifications/{noticeId} {
+      allow get: if isValidId(noticeId) && existing().active == true;
+      allow list: if existing().active == true;
+      allow create: if isValidId(noticeId) && isSignedIn() && isValidPublicNotification(incoming()) &&
+        incoming().id == noticeId &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().active == true &&
+        incoming().createdAt == request.time && (
+          isStaff() ||
+          (isActiveStudent() && incoming().kind in ['chat', 'submission'])
+        );
+      allow update, delete: if isValidId(noticeId) && isAdmin();
+    }
+
+    match /homepageConfig/{configId} {
+      allow get: if isValidId(configId);
+      allow list: if false;
+      allow create, update: if isValidId(configId) && isAdmin() && isValidHomepageConfig(incoming()) &&
+        incoming().updatedBy == request.auth.uid &&
+        incoming().updatedAt == request.time;
+      allow delete: if isValidId(configId) && isAdmin();
     }
   }
 }

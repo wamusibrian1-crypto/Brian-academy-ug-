@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Loader2, Lock, ShieldCheck } from 'lucide-react';
-import { BrandMark } from './BrandMark';
+import { BrandMark, OfficialLogo } from './BrandMark';
 import { useAuth } from '../context/AuthContext';
 
 export const AdminAuthView: React.FC = () => {
@@ -45,7 +45,7 @@ export const AdminAuthView: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-sidebar-bg px-4 py-8 sm:py-12">
+    <div className="min-h-screen bg-gradient-to-br from-[#0B1F3A] via-[#0E3378] to-[#124299] px-4 py-8 sm:py-10">
       <div className="mx-auto max-w-md">
         <button
           type="button"
@@ -65,12 +65,18 @@ export const AdminAuthView: React.FC = () => {
             </span>
           </div>
 
-          <h1 className="mt-5 font-display text-2xl font-bold text-heading">
-            Administrator & Staff Sign In
-          </h1>
-          <p className="mt-1.5 text-sm text-muted">
-            Access is restricted to owner-authorized administrators and assigned teachers. Public self-registration is disabled for security.
-          </p>
+          {/* Official Academy Crest Emblem */}
+          <div className="mt-5 flex flex-col items-center text-center rounded-2xl border border-border-subtle bg-surface-subtle px-4 py-4">
+            <div className="h-24 w-24 sm:h-28 sm:w-28 rounded-2xl bg-white p-1.5 shadow-xs ring-2 ring-[#EAB308]/60">
+              <OfficialLogo className="h-full w-full" />
+            </div>
+            <h1 className="mt-3 font-display text-2xl font-bold text-heading">
+              Administrator & Staff Sign In
+            </h1>
+            <p className="mt-1 text-xs text-muted">
+              Access is restricted to owner-authorized administrators and assigned teachers. Public self-registration is disabled for security.
+            </p>
+          </div>
 
           {authError && (
             <div className="mt-4 rounded-xl border border-rose-200 dark:border-rose-800/70 bg-rose-50 dark:bg-rose-950/50 px-3.5 py-3 text-xs font-medium text-rose-700 dark:text-rose-300">

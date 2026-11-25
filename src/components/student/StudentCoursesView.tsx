@@ -138,10 +138,19 @@ export const StudentCoursesView: React.FC<StudentCoursesViewProps> = ({ onOpenFe
               </p>
             </div>
           </div>
-          <div className="text-right">
-            <div className="text-[11px] font-medium text-muted">Overall Average</div>
-            <div className="font-display text-xl font-bold text-heading tabular-nums">
-              {gradedSubjects.length > 0 ? `${overallAvg}%` : '—'}
+          <div className="flex items-center gap-4">
+            <button
+              type="button"
+              onClick={() => onOpenFeature('homework')}
+              className="rounded-xl border border-border-theme bg-surface-subtle px-3 py-1.5 text-xs font-semibold text-accent-sky-text hover:bg-accent-sky-soft transition-colors"
+            >
+              My Assignments & Results
+            </button>
+            <div className="text-right">
+              <div className="text-[11px] font-medium text-muted">Overall Average</div>
+              <div className="font-display text-xl font-bold text-heading tabular-nums">
+                {gradedSubjects.length > 0 ? `${overallAvg}%` : '—'}
+              </div>
             </div>
           </div>
         </div>

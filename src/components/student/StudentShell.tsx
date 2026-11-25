@@ -46,6 +46,8 @@ interface StudentShellProps {
   notifications: StudentNotificationItem[];
   unreadCount: number;
   seenIds: Record<string, boolean>;
+  latestAlert: StudentNotificationItem | null;
+  onDismissLatestAlert: () => void;
   onMarkRead: (id: string) => void;
   onMarkFeatureRead: (feature: Exclude<StudentFeature, null>) => void;
   onMarkAllRead: () => void;
@@ -63,6 +65,8 @@ export const StudentShell: React.FC<StudentShellProps> = ({
   notifications,
   unreadCount,
   seenIds,
+  latestAlert,
+  onDismissLatestAlert,
   onMarkRead,
   onMarkFeatureRead,
   onMarkAllRead,
@@ -181,7 +185,7 @@ export const StudentShell: React.FC<StudentShellProps> = ({
                         Notifications ({unreadCount} unread)
                       </h3>
                       <p className="text-[11px] text-muted">
-                        Assignments, tests & administrator messages
+                        New uploads, assignments & institution chat
                       </p>
                     </div>
                     <div className="flex items-center gap-1">
@@ -399,6 +403,37 @@ export const StudentShell: React.FC<StudentShellProps> = ({
           </button>
         </div>
       </nav>
+
+      {/* Live In-App Toast Notification on New Upload or Chat */}
+      {latestAlert && (
+        <div className="fixed bottom-16 md:bottom-4 right-4 z-50 w-80 max-w-[calc(100vw-2rem)] rounded-2xl border border-sky-300 dark:border-sky-700 bg-surface p-4 shadow-xl">
+          <div className="flex items-start justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                onMarkRead(latestAlert.id);
+                onSelectFeature(latestAlert.targetFeature);
+                onDismissLatestAlert();
+              }}
+              className="flex-1 text-left"
+            >
+              <div className="flex items-center gap-1.5 text-xs font-bold text-accent-sky-text">
+                <BellRing className="h-3.5 w-3.5" />
+                <span>{latestAlert.title}</span>
+              </div>
+              <p className="mt-1 text-xs text-body line-clamp-2">{latestAlert.body}</p>
+            </button>
+            <button
+              type="button"
+              onClick={onDismissLatestAlert}
+              className="rounded-lg p-1 text-faint hover:bg-surface-muted"
+              aria-label="Dismiss alert"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

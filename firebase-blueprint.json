@@ -154,31 +154,68 @@
       },
       "required": ["studentUid", "studentName", "studentNumber", "classLevel", "joinedAt"]
     },
+    "MaterialFolder": {
+      "title": "MaterialFolder",
+      "description": "Subject folder or subfolder organizing learning materials.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "subject": { "type": "string", "enum": ["MTC", "Physics", "Chemistry", "Biology"] },
+        "parentFolderId": { "type": "string", "maxLength": 128 },
+        "classLevel": { "type": "string", "enum": ["ALL", "S1", "S2", "S3", "S4", "S5", "S6"] },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "creatorName": { "type": "string", "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "subject", "parentFolderId", "classLevel", "createdBy", "creatorName", "createdAt", "updatedAt"]
+    },
     "StudyMaterial": {
       "title": "StudyMaterial",
-      "description": "Uploaded notes, PDFs, presentations, images, revision packs, and video lessons.",
+      "description": "Uploaded notes, PDFs, Word, PowerPoint, Excel, images, revision packs, and video lessons.",
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "title": { "type": "string", "maxLength": 160 },
         "description": { "type": "string", "maxLength": 1500 },
-        "classLevel": { "type": "string", "enum": ["S1", "S2", "S3", "S4", "S5", "S6"] },
+        "classLevel": { "type": "string", "enum": ["ALL", "S1", "S2", "S3", "S4", "S5", "S6"] },
         "subject": { "type": "string", "enum": ["MTC", "Physics", "Chemistry", "Biology"] },
-        "materialType": { "type": "string", "enum": ["pdf", "document", "image", "presentation", "revision", "video"] },
-        "fileUrl": { "type": "string", "maxLength": 1000 },
+        "materialType": { "type": "string", "enum": ["pdf", "word", "powerpoint", "excel", "document", "image", "presentation", "revision", "video", "other"] },
+        "fileUrl": { "type": "string", "maxLength": 900000 },
         "inlineContent": { "type": "string", "maxLength": 20000 },
         "fileName": { "type": "string", "maxLength": 200 },
+        "folderId": { "type": "string", "maxLength": 128 },
+        "topic": { "type": "string", "maxLength": 160 },
+        "chapter": { "type": "string", "maxLength": 120 },
+        "fileFormat": { "type": "string", "maxLength": 24 },
+        "fileSizeBytes": { "type": "number" },
         "uploadedBy": { "type": "string", "maxLength": 128 },
         "uploaderName": { "type": "string", "maxLength": 120 },
         "published": { "type": "boolean" },
+        "views": { "type": "number", "description": "Total document view counter incremented when opened by students." },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "title", "description", "classLevel", "subject", "materialType", "fileUrl", "inlineContent", "fileName", "uploadedBy", "uploaderName", "published", "createdAt", "updatedAt"]
     },
+    "MaterialView": {
+      "title": "MaterialView",
+      "description": "Unique viewer record tracking which user opened a study material or PDF.",
+      "type": "object",
+      "properties": {
+        "materialId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "viewerUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "viewerName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "viewerRole": { "type": "string", "enum": ["student", "teacher", "admin"] },
+        "classLevel": { "type": "string", "enum": ["ALL", "S1", "S2", "S3", "S4", "S5", "S6"] },
+        "viewedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["materialId", "viewerUid", "viewerName", "viewerRole", "classLevel", "viewedAt"]
+    },
     "Assessment": {
       "title": "Assessment",
-      "description": "Examination test or homework assignment.",
+      "description": "Examination test or homework assignment with deadline tracking and learning material links.",
       "type": "object",
       "properties": {
         "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
@@ -190,10 +227,19 @@
         "durationMinutes": { "type": "number" },
         "totalMarks": { "type": "number" },
         "dueDate": { "type": "string", "maxLength": 40 },
+        "dueTimestampMs": { "type": "number" },
+        "topic": { "type": "string", "maxLength": 160 },
+        "materialId": { "type": "string", "maxLength": 128 },
+        "materialTitle": { "type": "string", "maxLength": 160 },
+        "allowLateSubmissions": { "type": "boolean" },
+        "allowResubmit": { "type": "boolean" },
+        "allowMultipleFiles": { "type": "boolean" },
+        "allowTypedAnswers": { "type": "boolean" },
+        "closed": { "type": "boolean" },
         "questions": { "type": "array" },
-        "attachmentUrl": { "type": "string", "maxLength": 1000 },
+        "attachmentUrl": { "type": "string", "maxLength": 900000 },
         "attachmentName": { "type": "string", "maxLength": 200 },
-        "attachmentType": { "type": "string", "enum": ["", "pdf", "photo"] },
+        "attachmentType": { "type": "string", "enum": ["", "pdf", "photo", "doc", "other"] },
         "published": { "type": "boolean" },
         "resultsPublished": { "type": "boolean" },
         "createdBy": { "type": "string", "maxLength": 128 },
@@ -229,15 +275,21 @@
         "studentName": { "type": "string", "maxLength": 120 },
         "studentNumber": { "type": "string", "maxLength": 40 },
         "answers": { "type": "array" },
+        "writtenAnswer": { "type": "string", "maxLength": 10000 },
         "questionScores": { "type": "array" },
         "totalScore": { "type": "number" },
         "maxMarks": { "type": "number" },
         "grade": { "type": "string", "maxLength": 20 },
         "teacherRemarks": { "type": "string", "maxLength": 1000 },
-        "attachmentUrl": { "type": "string", "maxLength": 1000 },
+        "corrections": { "type": "string", "maxLength": 2000 },
+        "attachmentUrl": { "type": "string", "maxLength": 900000 },
         "attachmentName": { "type": "string", "maxLength": 200 },
-        "attachmentType": { "type": "string", "enum": ["", "pdf", "photo"] },
-        "status": { "type": "string", "enum": ["submitted", "graded", "published"] },
+        "attachmentType": { "type": "string", "enum": ["", "pdf", "photo", "doc", "other"] },
+        "attachments": { "type": "array" },
+        "isLate": { "type": "boolean" },
+        "gradedBy": { "type": "string", "maxLength": 128 },
+        "gradedByName": { "type": "string", "maxLength": 120 },
+        "status": { "type": "string", "enum": ["submitted", "under_review", "graded", "published", "returned"] },
         "submittedAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
@@ -271,7 +323,7 @@
       "properties": {
         "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "channelId": { "type": "string", "maxLength": 80 },
-        "classLevel": { "type": "string", "enum": ["S1", "S2", "S3", "S4", "S5", "S6"] },
+        "classLevel": { "type": "string", "enum": ["ALL", "S1", "S2", "S3", "S4", "S5", "S6"] },
         "subject": { "type": "string", "maxLength": 40 },
         "senderId": { "type": "string", "maxLength": 128 },
         "senderName": { "type": "string", "maxLength": 120 },
@@ -324,7 +376,7 @@
         "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "title": { "type": "string", "maxLength": 120 },
         "caption": { "type": "string", "maxLength": 300 },
-        "imageUrl": { "type": "string", "maxLength": 1000 },
+        "imageUrl": { "type": "string", "maxLength": 900000 },
         "active": { "type": "boolean" },
         "createdBy": { "type": "string", "maxLength": 128 },
         "createdAt": { "type": "string", "format": "date-time" }
@@ -370,13 +422,87 @@
         "paymentMethod": { "type": "string", "enum": ["MTN MoMo", "Airtel Money", "Bank Deposit", "Cash Receipt"] },
         "referenceCode": { "type": "string", "minLength": 1, "maxLength": 80 },
         "payerPhone": { "type": "string", "maxLength": 40 },
-        "receiptUrl": { "type": "string", "maxLength": 250000 },
+        "receiptUrl": { "type": "string", "maxLength": 900000 },
         "adminNote": { "type": "string", "maxLength": 400 },
         "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "studentId", "studentName", "classLevel", "term", "amountUGX", "paymentMethod", "referenceCode", "payerPhone", "receiptUrl", "adminNote", "status", "createdAt", "updatedAt"]
+    },
+    "FileUpload": {
+      "title": "FileUpload",
+      "description": "Metadata manifest for multi-chunk uploaded PDFs and high-resolution photos.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "fileName": { "type": "string", "maxLength": 200 },
+        "mimeType": { "type": "string", "maxLength": 120 },
+        "sizeBytes": { "type": "number" },
+        "chunkCount": { "type": "number" },
+        "scope": { "type": "string", "enum": ["material", "assessment", "submission", "fee", "advert"] },
+        "uploadedBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "fileName", "mimeType", "sizeBytes", "chunkCount", "scope", "uploadedBy", "createdAt"]
+    },
+    "FileChunk": {
+      "title": "FileChunk",
+      "description": "Single base64 chunk of an uploaded PDF or photo.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "fileId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "index": { "type": "number" },
+        "data": { "type": "string", "maxLength": 700000 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "fileId", "index", "data", "createdAt"]
+    },
+    "PublicNotification": {
+      "title": "PublicNotification",
+      "description": "PII-free public platform upload and chat alert feed readable before login.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "kind": { "type": "string", "enum": ["material", "assessment", "submission", "chat", "announcement"] },
+        "title": { "type": "string", "maxLength": 140 },
+        "summary": { "type": "string", "maxLength": 240 },
+        "subject": { "type": "string", "maxLength": 40 },
+        "classLevel": { "type": "string", "enum": ["ALL", "S1", "S2", "S3", "S4", "S5", "S6"] },
+        "active": { "type": "boolean" },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "kind", "title", "summary", "subject", "classLevel", "active", "createdBy", "createdAt"]
+    },
+    "HomepageConfig": {
+      "title": "HomepageConfig",
+      "description": "Publicly readable, administrator-editable front page content and toggles.",
+      "type": "object",
+      "properties": {
+        "heroEyebrow": { "type": "string", "maxLength": 100 },
+        "heroTitle": { "type": "string", "maxLength": 140 },
+        "heroSubtitle": { "type": "string", "maxLength": 500 },
+        "motto": { "type": "string", "maxLength": 160 },
+        "advertsEnabled": { "type": "boolean" },
+        "appDownloadEnabled": { "type": "boolean" },
+        "appDownloadTitle": { "type": "string", "maxLength": 140 },
+        "appDownloadDescription": { "type": "string", "maxLength": 800 },
+        "androidApkUrl": { "type": "string", "maxLength": 500 },
+        "admissionsEnabled": { "type": "boolean" },
+        "admissionsTitle": { "type": "string", "maxLength": 160 },
+        "admissionsSummary": { "type": "string", "maxLength": 1200 },
+        "admissionsRequirements": { "type": "string", "maxLength": 2000 },
+        "aboutBadge": { "type": "string", "maxLength": 100 },
+        "aboutTitle": { "type": "string", "maxLength": 200 },
+        "aboutDescription": { "type": "string", "maxLength": 1500 },
+        "contactEmail": { "type": "string", "maxLength": 120 },
+        "contactPhone": { "type": "string", "maxLength": 40 },
+        "updatedBy": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["heroEyebrow", "heroTitle", "heroSubtitle", "motto", "advertsEnabled", "appDownloadEnabled", "appDownloadTitle", "appDownloadDescription", "androidApkUrl", "admissionsEnabled", "admissionsTitle", "admissionsSummary", "admissionsRequirements", "aboutBadge", "aboutTitle", "aboutDescription", "contactEmail", "contactPhone", "updatedBy", "updatedAt"]
     }
   },
   "firestore": {
@@ -389,7 +515,9 @@
     "/courses/{courseId}": { "schema": { "$ref": "#/entities/Course" }, "description": "Class and subject curriculum courses." },
     "/liveClasses/{lessonId}": { "schema": { "$ref": "#/entities/LiveClass" }, "description": "Scheduled and live classes." },
     "/liveClasses/{lessonId}/attendance/{studentUid}": { "schema": { "$ref": "#/entities/LiveAttendance" }, "description": "Live class attendance records." },
-    "/materials/{materialId}": { "schema": { "$ref": "#/entities/StudyMaterial" }, "description": "Uploaded study materials and video lessons." },
+    "/materialFolders/{folderId}": { "schema": { "$ref": "#/entities/MaterialFolder" }, "description": "Subject folders and subfolders organizing learning materials." },
+    "/materials/{materialId}": { "schema": { "$ref": "#/entities/StudyMaterial" }, "description": "Uploaded study materials and video lessons viewable by all." },
+    "/materials/{materialId}/views/{viewerUid}": { "schema": { "$ref": "#/entities/MaterialView" }, "description": "Unique viewer records per study material for teacher analytics." },
     "/assessments/{assessmentId}": { "schema": { "$ref": "#/entities/Assessment" }, "description": "Tests and homework assessments." },
     "/assessments/{assessmentId}/private/{docId}": { "schema": { "$ref": "#/entities/AssessmentAnswerKey" }, "description": "Protected assessment answer keys." },
     "/submissions/{submissionId}": { "schema": { "$ref": "#/entities/AssessmentSubmission" }, "description": "Student assessment submissions and graded results." },
@@ -399,6 +527,10 @@
     "/supportTickets/{ticketId}": { "schema": { "$ref": "#/entities/SupportTicket" }, "description": "Student help tickets." },
     "/activityLogs/{logId}": { "schema": { "$ref": "#/entities/ActivityLog" }, "description": "Platform activity monitoring logs." },
     "/advertPhotos/{advertId}": { "schema": { "$ref": "#/entities/AdvertPhoto" }, "description": "Administrator advert photos displayed on the entry page." },
-    "/reportCards/{reportId}": { "schema": { "$ref": "#/entities/ReportCard" }, "description": "Prepared academic term report cards." }
+    "/reportCards/{reportId}": { "schema": { "$ref": "#/entities/ReportCard" }, "description": "Prepared academic term report cards." },
+    "/fileUploads/{fileId}": { "schema": { "$ref": "#/entities/FileUpload" }, "description": "Manifest documents for multi-chunk PDF and photo uploads." },
+    "/fileUploads/{fileId}/chunks/{chunkId}": { "schema": { "$ref": "#/entities/FileChunk" }, "description": "Ordered base64 data chunks for uploaded PDFs and photos." },
+    "/publicNotifications/{noticeId}": { "schema": { "$ref": "#/entities/PublicNotification" }, "description": "PII-free public notifications for pre-login pop-out alerts on uploads and chats." },
+    "/homepageConfig/{configId}": { "schema": { "$ref": "#/entities/HomepageConfig" }, "description": "Administrator-adjustable public front page settings, admissions, app download, and contacts." }
   }
 }

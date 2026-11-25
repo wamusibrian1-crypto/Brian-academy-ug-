@@ -11,6 +11,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { StudentFeature } from './StudentShell';
 import { CLASS_LEVELS } from '../../types/academy';
+import { OfficialLogo } from '../BrandMark';
 
 interface StudentDashboardProps {
   onOpenFeature: (feature: Exclude<StudentFeature, null>) => void;
@@ -43,7 +44,7 @@ const DASHBOARD_CARDS: {
     title: 'Study Material',
     icon: BookOpen,
     iconBg: 'bg-indigo-100/90 dark:bg-indigo-900/50',
-    iconColor: 'text-[#0B1F3A] dark:text-indigo-300',
+    iconColor: 'text-[#124299] dark:text-indigo-300',
   },
   {
     id: 'test',
@@ -89,21 +90,26 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   return (
     <div className="mx-auto max-w-2xl space-y-5">
       {/* Educate-style Clean Student Welcome Banner */}
-      <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-[#0B1F3A] via-[#102D54] to-[#0284C7] p-5 sm:p-6 text-white shadow-sm">
-        <div className="flex items-center justify-between gap-4">
-          <div className="min-w-0">
-            <p className="text-xs font-medium text-sky-200">
-              {academicSettings.termName} {academicSettings.academicYear} · {classLabel}
-            </p>
-            <h1 className="mt-1 font-display text-xl font-bold tracking-tight sm:text-2xl truncate">
-              Hi, {studentProfile.fullName}
-            </h1>
-            <p className="mt-1 text-xs text-sky-100/90">
-              MTC · Physics · Chemistry · Biology
-            </p>
+      <section className="overflow-hidden rounded-3xl bg-gradient-to-br from-[#0B1F3A] via-[#124299] to-[#0284C7] p-5 sm:p-6 text-white shadow-sm">
+        <div className="flex items-center justify-between gap-3 sm:gap-4">
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="hidden xs:flex sm:flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white p-1 shadow-xs ring-2 ring-[#EAB308]/60">
+              <OfficialLogo className="h-full w-full" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-sky-200 truncate">
+                {academicSettings.termName} {academicSettings.academicYear} · {classLabel}
+              </p>
+              <h1 className="mt-0.5 font-display text-xl font-bold tracking-tight sm:text-2xl truncate">
+                Hi, {studentProfile.fullName}
+              </h1>
+              <p className="mt-0.5 text-[11px] font-semibold tracking-wider text-[#FACC15] uppercase truncate">
+                LEARN. DISCOVER. EXCEL.
+              </p>
+            </div>
           </div>
           <div className="shrink-0 rounded-2xl bg-white/10 px-3.5 py-2.5 text-center backdrop-blur-xs border border-white/15">
-            <div className="font-display text-lg font-extrabold text-[#D4AF37]">
+            <div className="font-display text-lg font-extrabold text-[#FACC15]">
               {studentProfile.classLevel}
             </div>
             <div className="text-[10px] font-semibold uppercase tracking-wider text-sky-100">

@@ -4,9 +4,11 @@ import {
   onAuthStateChanged,
   reload,
   sendEmailVerification,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
+  updatePassword,
   updateProfile,
   User,
 } from 'firebase/auth';
@@ -33,7 +35,9 @@ import {
   CLASS_LEVELS,
   ClassLevel,
   DEFAULT_FEE_STRUCTURE,
+  DEFAULT_HOMEPAGE_CONFIG,
   DEFAULT_UNEB_O_LEVEL_BANDS,
+  HomepageConfig,
   StudentProfile,
   SUBJECTS,
   SubjectCode,
@@ -64,6 +68,7 @@ interface AuthContextValue {
   teacherProfile: TeacherProfile | null;
   adminProfile: AdminProfile | null;
   academicSettings: AcademicSettings;
+  homepageConfig: HomepageConfig;
   needsStudentOnboarding: boolean;
   authError: string | null;
   clearAuthError: () => void;
@@ -77,6 +82,8 @@ interface AuthContextValue {
   }) => Promise<void>;
   resendVerification: () => Promise<void>;
   refreshVerification: () => Promise<boolean>;
+  sendStudentPasswordReset: (email: string) => Promise<void>;
+  setStudentPassword: (newPassword: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -86,9 +93,9 @@ const DEFAULT_SETTINGS: AcademicSettings = {
   passMark: 50,
   gradingSystem: 'UNEB_O_LEVEL',
   gradeBands: DEFAULT_UNEB_O_LEVEL_BANDS,
-  schoolMotto: 'Excellence in Science, Mathematics & Character',
-  supportPhone: '0753336009',
-  supportEmail: 'admissions@brianacademyug.org',
+  schoolMotto: 'LEARN. DISCOVER. EXCEL.',
+  supportPhone: '256753336009',
+  supportEmail: 'wamusibrian5@gmail.com',
   feeStructure: DEFAULT_FEE_STRUCTURE,
   muteUnpaid: false,
   updatedBy: 'system',
@@ -117,6 +124,12 @@ function mapFirebaseAuthError(error: unknown): string {
   if (code === 'auth/too-many-requests') {
     return 'Too many attempts. Please wait a moment and try again.';
   }
+  if (code === 'auth/requires-recent-login') {
+    return 'For your security, please sign out and sign back in (or use Forgot Password) before setting a new password.';
+  }
+  if (code === 'auth/invalid-email') {
+    return 'Please enter a valid email address.';
+  }
   return msg;
 }
 
@@ -133,6 +146,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [teacherProfile, setTeacherProfile] = useState<TeacherProfile | null>(null);
   const [adminProfile, setAdminProfile] = useState<AdminProfile | null>(null);
   const [academicSettings, setAcademicSettings] = useState<AcademicSettings>(DEFAULT_SETTINGS);
+  const [homepageConfig, setHomepageConfig] = useState<HomepageConfig>(DEFAULT_HOMEPAGE_CONFIG);
   const [needsStudentOnboarding, setNeedsStudentOnboarding] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
@@ -150,6 +164,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!settingsSnap.exists()) {
         await setDoc(doc(db, 'settings', 'academic'), {
           ...DEFAULT_SETTINGS,
+          updatedBy: adminUid,
+          updatedAt: serverTimestamp(),
+        });
+      }
+      const homepageSnap = await getDoc(doc(db, 'homepageConfig', 'main'));
+      if (!homepageSnap.exists()) {
+        await setDoc(doc(db, 'homepageConfig', 'main'), {
+          ...DEFAULT_HOMEPAGE_CONFIG,
           updatedBy: adminUid,
           updatedAt: serverTimestamp(),
         });
@@ -194,54 +216,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const emailLower = (user.email || '').toLowerCase();
 
       try {
-        if (!user.emailVerified) {
-          setRole('none');
-          setStudentProfile(null);
-          setTeacherProfile(null);
-          setAdminProfile(null);
-          setNeedsStudentOnboarding(false);
-          setLoadingProfile(false);
-          return;
-        }
+        // Admin & Teacher roles always require a verified email address
+        if (user.emailVerified) {
+          // 1. Check Admin record
+          const adminRef = doc(db, 'admins', user.uid);
+          let adminSnap = await getDoc(adminRef);
 
-        // 1. Check Admin record
-        const adminRef = doc(db, 'admins', user.uid);
-        let adminSnap = await getDoc(adminRef);
-
-        if (!adminSnap.exists() && emailLower === OWNER_ADMIN_EMAIL.toLowerCase()) {
-          const ownerDoc: AdminProfile = {
-            uid: user.uid,
-            email: emailLower,
-            fullName: sanitizeString(user.displayName || 'Brian Wamusi', 120),
-            role: 'owner',
-            active: true,
-          };
-          await setDoc(adminRef, {
-            ...ownerDoc,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          });
-          await seedInitialPlatformData(user.uid, ownerDoc.fullName);
-          adminSnap = await getDoc(adminRef);
-        } else if (!adminSnap.exists() && effectiveIntent === 'admin' && emailLower) {
-          const inviteSnap = await getDoc(doc(db, 'adminInvites', emailLower));
-          if (inviteSnap.exists() && inviteSnap.data().active === true) {
-            const inviteData = inviteSnap.data();
-            await setDoc(adminRef, {
+          if (!adminSnap.exists() && emailLower === OWNER_ADMIN_EMAIL.toLowerCase()) {
+            const ownerDoc: AdminProfile = {
               uid: user.uid,
               email: emailLower,
-              fullName: sanitizeString(inviteData.fullName || user.displayName || 'Administrator', 120),
-              role: 'admin',
+              fullName: sanitizeString(user.displayName || 'Academy Owner', 120),
+              role: 'owner',
               active: true,
+            };
+            await setDoc(adminRef, {
+              ...ownerDoc,
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
             });
+            await seedInitialPlatformData(user.uid, ownerDoc.fullName);
             adminSnap = await getDoc(adminRef);
+          } else if (!adminSnap.exists() && effectiveIntent === 'admin' && emailLower) {
+            const inviteSnap = await getDoc(doc(db, 'adminInvites', emailLower));
+            if (inviteSnap.exists() && inviteSnap.data().active === true) {
+              const inviteData = inviteSnap.data();
+              await setDoc(adminRef, {
+                uid: user.uid,
+                email: emailLower,
+                fullName: sanitizeString(inviteData.fullName || user.displayName || 'Administrator', 120),
+                role: 'admin',
+                active: true,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+              });
+              adminSnap = await getDoc(adminRef);
+            }
           }
-        }
 
-        if (adminSnap.exists() && adminSnap.data().active === true) {
-          const adm = adminSnap.data() as AdminProfile;
+          if (adminSnap.exists() && adminSnap.data().active === true) {
+            const adm = adminSnap.data() as AdminProfile;
           if (effectiveIntent === 'student') {
             setAuthError(
               'This account holds Administrator privileges. Please sign in through the Administrator Login Portal.'
@@ -259,60 +273,70 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (effectiveIntent === 'landing') {
             setPortalIntent('admin');
           }
-          setLoadingProfile(false);
-          return;
-        }
-
-        // 2. Check Teacher record
-        const teacherRef = doc(db, 'teachers', user.uid);
-        let teacherSnap = await getDoc(teacherRef);
-
-        if (!teacherSnap.exists() && effectiveIntent === 'admin' && emailLower) {
-          const tInviteSnap = await getDoc(doc(db, 'teacherInvites', emailLower));
-          if (tInviteSnap.exists() && tInviteSnap.data().active === true) {
-            const inv = tInviteSnap.data();
-            await setDoc(teacherRef, {
-              uid: user.uid,
-              email: emailLower,
-              fullName: sanitizeString(inv.fullName || user.displayName || 'Teacher', 120),
-              staffNumber: sanitizeString(inv.staffNumber || 'TCH-UG', 40),
-              classes: inv.classes || [],
-              subjects: inv.subjects || [],
-              status: 'active',
-              createdAt: serverTimestamp(),
-              updatedAt: serverTimestamp(),
-            });
-            teacherSnap = await getDoc(teacherRef);
-          }
-        }
-
-        if (teacherSnap.exists()) {
-          const tch = teacherSnap.data() as TeacherProfile;
-          if (tch.status !== 'active') {
-            setAuthError('Your teacher account has been suspended by the Administrator.');
-            setRole('none');
             setLoadingProfile(false);
             return;
           }
-          if (effectiveIntent === 'student') {
-            setAuthError('This account is registered as a Teacher. Please use the Staff / Administrator Portal.');
-            setRole('none');
+
+          // 2. Check Teacher record (verified email only)
+          const teacherRef = doc(db, 'teachers', user.uid);
+          let teacherSnap = await getDoc(teacherRef);
+
+          if (!teacherSnap.exists() && effectiveIntent === 'admin' && emailLower) {
+            const tInviteSnap = await getDoc(doc(db, 'teacherInvites', emailLower));
+            if (tInviteSnap.exists() && tInviteSnap.data().active === true) {
+              const inv = tInviteSnap.data();
+              await setDoc(teacherRef, {
+                uid: user.uid,
+                email: emailLower,
+                fullName: sanitizeString(inv.fullName || user.displayName || 'Teacher', 120),
+                staffNumber: sanitizeString(inv.staffNumber || 'TCH-UG', 40),
+                classes: inv.classes || [],
+                subjects: inv.subjects || [],
+                status: 'active',
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+              });
+              teacherSnap = await getDoc(teacherRef);
+            }
+          }
+
+          if (teacherSnap.exists()) {
+            const tch = teacherSnap.data() as TeacherProfile;
+            if (tch.status !== 'active') {
+              setAuthError('Your teacher account has been suspended by the Administrator.');
+              setRole('none');
+              setLoadingProfile(false);
+              return;
+            }
+            if (effectiveIntent === 'student') {
+              setAuthError('This account is registered as a Teacher. Please use the Staff / Administrator Portal.');
+              setRole('none');
+              setLoadingProfile(false);
+              return;
+            }
+            setTeacherProfile(tch);
+            setAdminProfile(null);
+            setStudentProfile(null);
+            setRole('teacher');
+            setNeedsStudentOnboarding(false);
+            if (effectiveIntent === 'landing') {
+              setPortalIntent('admin');
+            }
             setLoadingProfile(false);
             return;
           }
-          setTeacherProfile(tch);
-          setAdminProfile(null);
+        } else if (effectiveIntent === 'admin') {
+          // Staff/Admin portal requires email verification
+          setRole('none');
           setStudentProfile(null);
-          setRole('teacher');
+          setTeacherProfile(null);
+          setAdminProfile(null);
           setNeedsStudentOnboarding(false);
-          if (effectiveIntent === 'landing') {
-            setPortalIntent('admin');
-          }
           setLoadingProfile(false);
           return;
         }
 
-        // 3. Check Student record
+        // 3. Check Student record (supports email/password accounts directly)
         const studentRef = doc(db, 'students', user.uid);
         const studentSnap = await getDoc(studentRef);
 
@@ -377,6 +401,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsub();
   }, [resolveUserProfile]);
 
+  // Listen publicly to admin-editable front page configuration (before & after sign-in)
+  useEffect(() => {
+    const unsubHomepage = onSnapshot(
+      doc(db, 'homepageConfig', 'main'),
+      (snap) => {
+        if (snap.exists()) {
+          const raw = snap.data() as Partial<HomepageConfig>;
+          setHomepageConfig({
+            ...DEFAULT_HOMEPAGE_CONFIG,
+            ...raw,
+          });
+        } else {
+          setHomepageConfig(DEFAULT_HOMEPAGE_CONFIG);
+        }
+      },
+      () => {
+        setHomepageConfig(DEFAULT_HOMEPAGE_CONFIG);
+      }
+    );
+    return () => unsubHomepage();
+  }, []);
+
   // Listen to academic settings and live student profile updates when signed in
   useEffect(() => {
     if (!firebaseUser) return;
@@ -389,9 +435,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             ...DEFAULT_SETTINGS,
             ...raw,
             supportPhone:
-              !raw.supportPhone || raw.supportPhone === '+256 700 000 100'
-                ? '0753336009'
+              !raw.supportPhone ||
+              raw.supportPhone === '+256 700 000 100' ||
+              raw.supportPhone === '0753336009'
+                ? '256753336009'
                 : raw.supportPhone,
+            supportEmail:
+              !raw.supportEmail || raw.supportEmail === 'admissions@brianacademyug.org'
+                ? 'wamusibrian5@gmail.com'
+                : raw.supportEmail,
           });
         }
       },
@@ -423,23 +475,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     async ({ fullName, email, password, classLevel, studentNumber }: StudentRegistrationPayload) => {
       setAuthError(null);
       setPortalIntent('student');
+      const cleanName = sanitizeString(fullName, 120);
+      const cleanEmail = sanitizeString(email, 200).trim().toLowerCase();
+      const cleanNumber = sanitizeString(studentNumber || '', 40);
       try {
-        const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
-        await updateProfile(cred.user, { displayName: sanitizeString(fullName, 120) });
-        // Store pending registration profile details temporarily in sessionStorage until email verified
-        sessionStorage.setItem(
-          'baug_pending_student_reg',
-          JSON.stringify({
-            fullName: sanitizeString(fullName, 120),
-            classLevel,
-            studentNumber: sanitizeString(studentNumber || '', 40),
-          })
-        );
-        try {
-          await sendEmailVerification(cred.user);
-        } catch (verErr) {
-          console.warn('Verification email send warning:', verErr);
-        }
+        const cred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
+        await updateProfile(cred.user, { displayName: cleanName });
+
+        // Immediately provision student profile in Firestore so email+password students sign in right away
+        await setDoc(doc(db, 'students', cred.user.uid), {
+          uid: cred.user.uid,
+          fullName: cleanName,
+          email: cleanEmail,
+          classLevel,
+          studentNumber: cleanNumber,
+          subjects: ['MTC', 'Physics', 'Chemistry', 'Biology'] as SubjectCode[],
+          status: 'pending' as const,
+          role: 'student' as const,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+
+        void logPlatformActivity({
+          actorId: cred.user.uid,
+          actorName: cleanName,
+          actorRole: 'student',
+          action: 'Student Registered',
+          details: `${cleanName} registered with email & password in ${classLevel}`,
+        }).catch(() => undefined);
+
+        // Optional non-blocking verification email
+        void sendEmailVerification(cred.user).catch(() => undefined);
+
         await resolveUserProfile(cred.user, 'student');
       } catch (err) {
         const message = mapFirebaseAuthError(err);
@@ -578,6 +645,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return false;
   }, [portalIntent, resolveUserProfile]);
 
+  const sendStudentPasswordReset = useCallback(async (email: string) => {
+    setAuthError(null);
+    try {
+      await sendPasswordResetEmail(auth, email.trim());
+    } catch (err) {
+      const message = mapFirebaseAuthError(err);
+      setAuthError(message);
+      throw new Error(message);
+    }
+  }, []);
+
+  const setStudentPassword = useCallback(async (newPassword: string) => {
+    if (!auth.currentUser) throw new Error('You must be signed in to update your password.');
+    setAuthError(null);
+    try {
+      await updatePassword(auth.currentUser, newPassword);
+    } catch (err) {
+      const message = mapFirebaseAuthError(err);
+      setAuthError(message);
+      throw new Error(message);
+    }
+  }, []);
+
   const logout = useCallback(async () => {
     await signOut(auth);
     setRole('none');
@@ -602,6 +692,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         teacherProfile,
         adminProfile,
         academicSettings,
+        homepageConfig,
         needsStudentOnboarding,
         authError,
         clearAuthError,
@@ -611,6 +702,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         completeStudentOnboarding,
         resendVerification,
         refreshVerification,
+        sendStudentPasswordReset,
+        setStudentPassword,
         logout,
       }}
     >

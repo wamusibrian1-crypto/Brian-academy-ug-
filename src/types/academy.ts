@@ -1,8 +1,19 @@
 export type ClassLevel = 'S1' | 'S2' | 'S3' | 'S4' | 'S5' | 'S6';
 export type SubjectCode = 'MTC' | 'Physics' | 'Chemistry' | 'Biology';
-export type MaterialType = 'pdf' | 'document' | 'image' | 'presentation' | 'revision' | 'video';
+export type MaterialType =
+  | 'pdf'
+  | 'word'
+  | 'powerpoint'
+  | 'excel'
+  | 'document'
+  | 'image'
+  | 'presentation'
+  | 'revision'
+  | 'video'
+  | 'other';
 export type AssessmentKind = 'test' | 'homework';
 export type GradingSystemType = 'UNEB_O_LEVEL' | 'UNEB_A_LEVEL' | 'CUSTOM';
+export type SubmissionStatus = 'submitted' | 'under_review' | 'graded' | 'published' | 'returned';
 
 export const CLASS_LEVELS: { code: ClassLevel; label: string; levelGroup: 'O-Level' | 'A-Level' }[] = [
   { code: 'S1', label: 'Senior One (S1)', levelGroup: 'O-Level' },
@@ -20,13 +31,24 @@ export const SUBJECTS: { code: SubjectCode; name: string; shortDesc: string }[] 
   { code: 'Biology', name: 'Biology', shortDesc: 'Cell Biology, Physiology, Genetics & Ecology' },
 ];
 
+export const SUBJECT_LIBRARIES: { code: SubjectCode; libraryTitle: string; shortDesc: string }[] = [
+  { code: 'MTC', libraryTitle: 'Mathematics Materials', shortDesc: 'Algebra, Geometry, Calculus & Applied Mechanics' },
+  { code: 'Physics', libraryTitle: 'Physics Materials', shortDesc: 'Mechanics, Waves, Optics, Electricity & Modern Physics' },
+  { code: 'Chemistry', libraryTitle: 'Chemistry Materials', shortDesc: 'Physical, Inorganic & Organic Chemistry' },
+  { code: 'Biology', libraryTitle: 'Biology Materials', shortDesc: 'Cell Biology, Physiology, Genetics & Ecology' },
+];
+
 export const MATERIAL_TYPES: { value: MaterialType; label: string }[] = [
-  { value: 'pdf', label: 'PDF Notes' },
-  { value: 'document', label: 'Document' },
+  { value: 'pdf', label: 'PDF Document' },
+  { value: 'word', label: 'Word Document' },
+  { value: 'powerpoint', label: 'PowerPoint Slides' },
+  { value: 'excel', label: 'Excel Spreadsheet' },
   { value: 'image', label: 'Image / Diagram' },
+  { value: 'document', label: 'Study Document' },
   { value: 'presentation', label: 'Presentation' },
   { value: 'revision', label: 'Revision Material' },
   { value: 'video', label: 'Video Lesson' },
+  { value: 'other', label: 'Other File' },
 ];
 
 export interface GradeBand {
@@ -137,6 +159,57 @@ export interface AcademicSettings {
   updatedAt?: unknown;
 }
 
+export interface HomepageConfig {
+  heroEyebrow: string;
+  heroTitle: string;
+  heroSubtitle: string;
+  motto: string;
+  advertsEnabled: boolean;
+  appDownloadEnabled: boolean;
+  appDownloadTitle: string;
+  appDownloadDescription: string;
+  androidApkUrl: string;
+  admissionsEnabled: boolean;
+  admissionsTitle: string;
+  admissionsSummary: string;
+  admissionsRequirements: string;
+  aboutBadge: string;
+  aboutTitle: string;
+  aboutDescription: string;
+  contactEmail: string;
+  contactPhone: string;
+  updatedBy: string;
+  updatedAt?: unknown;
+}
+
+export const DEFAULT_HOMEPAGE_CONFIG: HomepageConfig = {
+  heroEyebrow: 'Official Learning Portal',
+  heroTitle: 'BRIAN ACADEMY UG',
+  heroSubtitle:
+    'Access S1–S6 Science & Mathematics learning materials, live lessons, assignments, and verified UNEB academic reports.',
+  motto: 'LEARN. DISCOVER. EXCEL.',
+  advertsEnabled: true,
+  appDownloadEnabled: true,
+  appDownloadTitle: 'Download the BRIAN ACADEMY UG App',
+  appDownloadDescription:
+    'Install our official Android, iOS, tablet, and Chrome application for one-tap access to notes, assignment submissions, live classes, and instant alerts.',
+  androidApkUrl: '',
+  admissionsEnabled: true,
+  admissionsTitle: 'Admissions Open — Senior One to Senior Six (S1 – S6)',
+  admissionsSummary:
+    'Join BRIAN ACADEMY UG for structured secondary education in Physics, Chemistry, Biology, and Mathematics. Register online in minutes and start learning with our faculty.',
+  admissionsRequirements:
+    '1. Tap Apply / Student Registration and create your student account.\n2. Select your Senior class (S1 – S6) to unlock subject libraries.\n3. Contact Admissions via wamusibrian5@gmail.com or 256753336009 for fee clearance & support.',
+  aboutBadge: 'ABOUT BRIAN ACADEMY UG',
+  aboutTitle:
+    'Dedicated Secondary Science & Mathematics Education for Senior One to Senior Six',
+  aboutDescription:
+    'BRIAN ACADEMY UG is an established Ugandan online secondary institution delivering structured lessons, live virtual classrooms, interactive assessments, and UNEB-aligned academic mentorship across Physics, Chemistry, Biology, and Mathematics.',
+  contactEmail: 'wamusibrian5@gmail.com',
+  contactPhone: '256753336009',
+  updatedBy: 'system',
+};
+
 export interface Course {
   id: string;
   classLevel: ClassLevel;
@@ -177,21 +250,48 @@ export interface LiveAttendance {
   joinedAt?: unknown;
 }
 
+export interface MaterialFolder {
+  id: string;
+  name: string;
+  subject: SubjectCode;
+  parentFolderId: string;
+  classLevel: ClassLevel | 'ALL';
+  createdBy: string;
+  creatorName: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}
+
 export interface StudyMaterial {
   id: string;
   title: string;
   description: string;
-  classLevel: ClassLevel;
+  classLevel: ClassLevel | 'ALL';
   subject: SubjectCode;
   materialType: MaterialType;
   fileUrl: string;
   inlineContent: string;
   fileName: string;
+  folderId?: string;
+  topic?: string;
+  chapter?: string;
+  fileFormat?: string;
+  fileSizeBytes?: number;
   uploadedBy: string;
   uploaderName: string;
   published: boolean;
+  views?: number;
   createdAt?: unknown;
   updatedAt?: unknown;
+}
+
+export interface MaterialView {
+  materialId: string;
+  viewerUid: string;
+  viewerName: string;
+  viewerRole: 'student' | 'teacher' | 'admin';
+  classLevel: ClassLevel | 'ALL';
+  viewedAt?: unknown;
 }
 
 export interface AssessmentQuestion {
@@ -212,10 +312,19 @@ export interface Assessment {
   durationMinutes: number;
   totalMarks: number;
   dueDate: string;
+  dueTimestampMs?: number;
+  topic?: string;
+  materialId?: string;
+  materialTitle?: string;
+  allowLateSubmissions?: boolean;
+  allowResubmit?: boolean;
+  allowMultipleFiles?: boolean;
+  allowTypedAnswers?: boolean;
+  closed?: boolean;
   questions: AssessmentQuestion[];
   attachmentUrl: string;
   attachmentName: string;
-  attachmentType: '' | 'pdf' | 'photo';
+  attachmentType: '' | 'pdf' | 'photo' | 'doc' | 'other';
   published: boolean;
   resultsPublished: boolean;
   createdBy: string;
@@ -247,6 +356,14 @@ export interface QuestionScore {
   comment: string;
 }
 
+export interface SubmissionAttachment {
+  url: string;
+  name: string;
+  mimeType: string;
+  fileFormat: string;
+  sizeBytes: number;
+}
+
 export interface AssessmentSubmission {
   id: string;
   assessmentId: string;
@@ -258,15 +375,21 @@ export interface AssessmentSubmission {
   studentName: string;
   studentNumber: string;
   answers: StudentAnswer[];
+  writtenAnswer?: string;
   questionScores: QuestionScore[];
   totalScore: number;
   maxMarks: number;
   grade: string;
   teacherRemarks: string;
+  corrections?: string;
   attachmentUrl: string;
   attachmentName: string;
-  attachmentType: '' | 'pdf' | 'photo';
-  status: 'submitted' | 'graded' | 'published';
+  attachmentType: '' | 'pdf' | 'photo' | 'doc' | 'other';
+  attachments?: SubmissionAttachment[];
+  isLate?: boolean;
+  gradedBy?: string;
+  gradedByName?: string;
+  status: SubmissionStatus;
   submittedAt?: unknown;
   updatedAt?: unknown;
 }
@@ -307,7 +430,7 @@ export interface FeePaymentRequest {
 export interface ChatMessage {
   id: string;
   channelId: string;
-  classLevel: ClassLevel;
+  classLevel: ClassLevel | 'ALL';
   subject: string;
   senderId: string;
   senderName: string;
@@ -346,6 +469,18 @@ export interface AdvertPhoto {
   title: string;
   caption: string;
   imageUrl: string;
+  active: boolean;
+  createdBy: string;
+  createdAt?: unknown;
+}
+
+export interface PublicNotification {
+  id: string;
+  kind: 'material' | 'assessment' | 'submission' | 'chat' | 'announcement';
+  title: string;
+  summary: string;
+  subject: string;
+  classLevel: ClassLevel | 'ALL';
   active: boolean;
   createdBy: string;
   createdAt?: unknown;

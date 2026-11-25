@@ -25,18 +25,18 @@ import {
   setDoc,
   where,
 } from 'firebase/firestore';
-import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
-import { db, handleFirestoreError, OperationType, storage } from '../../lib/firebase';
+import { db, handleFirestoreError, OperationType } from '../../lib/firebase';
 import { useAuth } from '../../context/AuthContext';
 import { FeePaymentRequest, FeeRecord, formatUGX } from '../../types/academy';
 import {
-  compressImageToDataUrl,
   formatTimestamp,
   generateDocId,
   sanitizeSafeReceiptUrl,
   sanitizeString,
 } from '../../lib/validation';
+import { uploadFileWithFallback } from '../../lib/chunkedUpload';
 import { logPlatformActivity } from '../../lib/activity';
+import { ResolvedFileLink, ResolvedImage } from '../ResolvedFileView';
 
 interface StudentFeesPageProps {
   onBack: () => void;
@@ -48,9 +48,9 @@ export const StudentFeesPage: React.FC<StudentFeesPageProps> = ({ onBack }) => {
   const [paymentRequests, setPaymentRequests] = useState<FeePaymentRequest[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const airtelNumber = academicSettings.supportPhone || '0753336009';
+  const airtelNumber = academicSettings.supportPhone || '256753336009';
 
-  // Payment form state
+  // Single-button payment details + proof form toggle (hidden by default)
   const [showPayPanel, setShowPayPanel] = useState(false);
   const [amountUGX, setAmountUGX] = useState('');
   const [paymentMethod, setPaymentMethod] =
@@ -58,6 +58,7 @@ export const StudentFeesPage: React.FC<StudentFeesPageProps> = ({ onBack }) => {
   const [referenceCode, setReferenceCode] = useState('');
   const [payerPhone, setPayerPhone] = useState('');
   const [receiptUrl, setReceiptUrl] = useState('');
+  const [receiptIsPdf, setReceiptIsPdf] = useState(false);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [compressingImg, setCompressingImg] = useState(false);
   const [screenshotNotice, setScreenshotNotice] = useState<string | null>(null);
@@ -125,7 +126,11 @@ export const StudentFeesPage: React.FC<StudentFeesPageProps> = ({ onBack }) => {
   const balance = Math.max(0, expectedTermFee - totalPaid);
   const isUnpaidMuted = Boolean(academicSettings.muteUnpaid) && balance > 0;
 
-  const openPayPanel = () => {
+  const togglePayPanel = () => {
+    if (showPayPanel) {
+      setShowPayPanel(false);
+      return;
+    }
     setSubmitError(null);
     setSubmitSuccess(null);
     setScreenshotNotice(null);
@@ -151,46 +156,41 @@ export const StudentFeesPage: React.FC<StudentFeesPageProps> = ({ onBack }) => {
     setScreenshotNotice(null);
     setSubmitError(null);
 
-    if (!file.type.startsWith('image/')) {
-      setSubmitError('Please select a screenshot image (PNG, JPG, or WebP).');
+    const isImage = file.type.startsWith('image/');
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    if (!isImage && !isPdf) {
+      setSubmitError('Please select a screenshot image (PNG, JPG, WebP) or PDF receipt.');
       return;
     }
 
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const storagePath = `submissions/fees/${studentProfile.uid}/${Date.now()}_${safeName}`;
-    const storageRef = ref(storage, storagePath);
-    const task = uploadBytesResumable(storageRef, file);
-
-    task.on(
-      'state_changed',
-      (snap) => {
-        setUploadPct(Math.round((snap.bytesTransferred / snap.totalBytes) * 100));
-      },
-      async () => {
-        // Fallback: compress screenshot directly in browser so proof-of-payment ALWAYS succeeds
-        setUploadPct(null);
-        setCompressingImg(true);
-        try {
-          const compressed = await compressImageToDataUrl(file);
-          setReceiptUrl(compressed);
-          setScreenshotNotice('Screenshot attached and ready to submit.');
-        } catch (compErr) {
-          setSubmitError(
-            compErr instanceof Error
-              ? compErr.message
-              : 'Could not process screenshot. Please try another image.'
-          );
-        } finally {
-          setCompressingImg(false);
-        }
-      },
-      async () => {
-        const url = await getDownloadURL(task.snapshot.ref);
-        setReceiptUrl(url);
-        setUploadPct(null);
-        setScreenshotNotice('Screenshot uploaded successfully.');
-      }
-    );
+    setCompressingImg(true);
+    setUploadPct(5);
+    try {
+      const result = await uploadFileWithFallback({
+        file,
+        storagePath: `submissions/fees/${studentProfile.uid}/${Date.now()}_${safeName}`,
+        scope: 'fee',
+        ownerUid: studentProfile.uid,
+        onProgress: (pct) => setUploadPct(pct),
+      });
+      setReceiptUrl(result.url);
+      setReceiptIsPdf(isPdf);
+      setScreenshotNotice(
+        isPdf
+          ? 'PDF payment receipt attached and ready to submit.'
+          : 'Screenshot attached cleanly and ready to submit.'
+      );
+    } catch (compErr) {
+      setSubmitError(
+        compErr instanceof Error
+          ? compErr.message
+          : 'Could not process screenshot/receipt. Please try another file.'
+      );
+    } finally {
+      setUploadPct(null);
+      setCompressingImg(false);
+    }
   };
 
   const handleSubmitPayment = async (e: React.FormEvent) => {
@@ -205,9 +205,9 @@ export const StudentFeesPage: React.FC<StudentFeesPageProps> = ({ onBack }) => {
     }
 
     const trimmedReceiptInput = receiptUrl.trim();
-    const cleanReceiptUrl = sanitizeSafeReceiptUrl(trimmedReceiptInput, 250000);
+    const cleanReceiptUrl = sanitizeSafeReceiptUrl(trimmedReceiptInput, 900000);
     if (trimmedReceiptInput && !cleanReceiptUrl) {
-      setSubmitError('Please upload a valid screenshot image or paste an https:// receipt link.');
+      setSubmitError('Please upload a valid screenshot image, PDF receipt, or https:// link.');
       return;
     }
 
@@ -263,10 +263,11 @@ export const StudentFeesPage: React.FC<StudentFeesPageProps> = ({ onBack }) => {
       setReferenceCode('');
       setPayerPhone('');
       setReceiptUrl('');
+      setReceiptIsPdf(false);
       setScreenshotNotice(null);
       setShowPayPanel(false);
       setSubmitSuccess(
-        'Payment proof submitted! The bursar will verify your Airtel Money / MoMo screenshot shortly.'
+        'Payment proof submitted! The bursar will verify your payment screenshot shortly.'
       );
     } catch (err) {
       handleFirestoreError(err, OperationType.CREATE, path);
@@ -296,83 +297,24 @@ export const StudentFeesPage: React.FC<StudentFeesPageProps> = ({ onBack }) => {
           </div>
         </div>
 
+        {/* Single Payment Details & Proof Toggle Button */}
         <button
           type="button"
-          onClick={() => (showPayPanel ? setShowPayPanel(false) : openPayPanel())}
+          onClick={togglePayPanel}
+          aria-expanded={showPayPanel}
           className="inline-flex items-center gap-2 rounded-xl bg-btn-primary px-4 py-2.5 text-xs font-semibold text-white shadow-xs transition-colors hover:bg-btn-primary-hover"
         >
           <CreditCard className="h-4 w-4 text-accent-gold" />
-          <span>{showPayPanel ? 'Close Payment Form' : 'Pay School Fees'}</span>
+          <span>{showPayPanel ? 'Hide Payment Details' : 'Payment Details & Pay Fees'}</span>
         </button>
       </div>
 
-      {/* Airtel Money Payment Instructions Card */}
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-rose-200 dark:border-rose-800/70 bg-gradient-to-r from-rose-50 via-white to-amber-50/70 dark:from-rose-950/60 dark:via-surface dark:to-amber-950/40 p-4 sm:p-5">
-        <div className="flex items-center gap-3.5">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-rose-600 text-white shrink-0">
-            <Phone className="h-5 w-5" />
-          </div>
-          <div>
-            <div className="text-xs font-bold uppercase tracking-wide text-rose-700 dark:text-rose-400">
-              Airtel Money School Fees Payment
-            </div>
-            <div className="mt-0.5 font-display text-lg font-extrabold text-heading tabular-nums">
-              {airtelNumber}
-            </div>
-            <p className="text-xs text-body">
-              Send fees via Airtel Money to <strong>{airtelNumber}</strong>, then tap{' '}
-              <strong>Pay School Fees</strong> and upload your payment screenshot.
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleCopyNumber}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-border-input bg-surface px-3.5 py-2 text-xs font-semibold text-heading hover:bg-surface-muted transition-colors"
-          >
-            {copiedPhone ? (
-              <>
-                <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                <span>Copied</span>
-              </>
-            ) : (
-              <>
-                <Copy className="h-3.5 w-3.5 text-muted" />
-                <span>Copy {airtelNumber}</span>
-              </>
-            )}
-          </button>
-          {!showPayPanel && (
-            <button
-              type="button"
-              onClick={openPayPanel}
-              className="rounded-xl bg-rose-600 px-4 py-2 text-xs font-semibold text-white hover:bg-rose-700"
-            >
-              Upload Proof
-            </button>
-          )}
-        </div>
-      </div>
-
       {isUnpaidMuted && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border-theme bg-surface-muted px-4 py-3 text-xs font-medium text-body">
-          <div className="flex items-center gap-2.5">
-            <VolumeX className="h-4 w-4 text-muted shrink-0" />
-            <span>
-              Unpaid status is currently muted. Pay via Airtel Money ({airtelNumber}) and upload your
-              screenshot to unlock live lessons and class chat.
-            </span>
-          </div>
-          {!showPayPanel && (
-            <button
-              type="button"
-              onClick={openPayPanel}
-              className="rounded-lg bg-btn-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-btn-primary-hover"
-            >
-              Pay Now
-            </button>
-          )}
+        <div className="flex items-center gap-2.5 rounded-2xl border border-border-theme bg-surface-muted px-4 py-3 text-xs font-medium text-body">
+          <VolumeX className="h-4 w-4 text-muted shrink-0" />
+          <span>
+            Unpaid status is currently muted. Click <strong>Payment Details & Pay Fees</strong> above to view payment details and upload proof.
+          </span>
         </div>
       )}
 
@@ -393,6 +335,267 @@ export const StudentFeesPage: React.FC<StudentFeesPageProps> = ({ onBack }) => {
         </div>
       )}
 
+      {/* Hidden Payment Details + Proof Upload Panel (Revealed ONLY by the one button above) */}
+      {showPayPanel && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-rose-200 dark:border-rose-800/70 bg-gradient-to-r from-rose-50 via-white to-amber-50/70 dark:from-rose-950/60 dark:via-surface dark:to-amber-950/40 p-4 sm:p-5">
+            <div className="flex items-center gap-3.5">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-rose-600 text-white shrink-0">
+                <Phone className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="text-xs font-bold uppercase tracking-wide text-rose-700 dark:text-rose-400">
+                  Airtel Money School Fees Payment
+                </div>
+                <div className="mt-0.5 font-display text-lg font-extrabold text-heading tabular-nums">
+                  {airtelNumber}
+                </div>
+                <p className="text-xs text-body">
+                  Send fees via Airtel Money to <strong>{airtelNumber}</strong>, then upload your
+                  payment screenshot below.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleCopyNumber}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-border-input bg-surface px-3.5 py-2 text-xs font-semibold text-heading hover:bg-surface-muted transition-colors"
+            >
+              {copiedPhone ? (
+                <>
+                  <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <span>Copied</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="h-3.5 w-3.5 text-muted" />
+                  <span>Copy {airtelNumber}</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          <form
+            onSubmit={handleSubmitPayment}
+            className="rounded-2xl border border-sky-200 dark:border-sky-800/70 bg-surface p-6 shadow-xs space-y-5"
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-border-subtle pb-4">
+              <div>
+                <h2 className="font-display text-lg font-bold text-heading">
+                  Submit Fee Payment & Screenshot
+                </h2>
+                <p className="mt-0.5 text-xs text-body">
+                  Send fees on <strong>Airtel Money to {airtelNumber}</strong> (or MTN MoMo / Bank
+                  Deposit), then upload a screenshot of your confirmation message below.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPayPanel(false)}
+                className="rounded-lg p-1.5 text-faint hover:bg-surface-muted hover:text-body"
+                aria-label="Close payment details"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {submitError && (
+              <div className="rounded-xl border border-rose-200 dark:border-rose-800/70 bg-rose-50 dark:bg-rose-950/50 px-3.5 py-2.5 text-xs font-medium text-rose-700 dark:text-rose-300">
+                {submitError}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-semibold text-body">
+                    Amount Paid (UGX)
+                  </label>
+                  {balance > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setAmountUGX(String(balance))}
+                      className="text-[11px] font-semibold text-accent-sky-text hover:underline"
+                    >
+                      Fill Balance ({formatUGX(balance)})
+                    </button>
+                  )}
+                </div>
+                <input
+                  type="number"
+                  required
+                  min={1000}
+                  max={50000000}
+                  value={amountUGX}
+                  onChange={(e) => setAmountUGX(e.target.value)}
+                  placeholder="e.g. 250000"
+                  className="mt-1 w-full rounded-xl border border-border-input bg-input-bg text-heading px-3.5 py-2.5 font-mono text-sm focus:border-accent-sky focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-body">Payment Method</label>
+                <select
+                  value={paymentMethod}
+                  onChange={(e) =>
+                    setPaymentMethod(e.target.value as FeePaymentRequest['paymentMethod'])
+                  }
+                  className="mt-1 w-full rounded-xl border border-border-input bg-input-bg text-heading px-3 py-2.5 text-sm focus:border-accent-sky focus:outline-none"
+                >
+                  <option value="Airtel Money">Airtel Money ({airtelNumber})</option>
+                  <option value="MTN MoMo">MTN MoMo</option>
+                  <option value="Bank Deposit">Bank Deposit</option>
+                  <option value="Cash Receipt">Cash Receipt</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-body">
+                  Transaction ID / Reference {receiptUrl ? '(Optional with Screenshot)' : ''}
+                </label>
+                <input
+                  type="text"
+                  maxLength={80}
+                  value={referenceCode}
+                  onChange={(e) => setReferenceCode(e.target.value)}
+                  placeholder="e.g. AIRTEL-MP260411 or SMS ID"
+                  className="mt-1 w-full rounded-xl border border-border-input bg-input-bg text-heading px-3.5 py-2.5 font-mono text-sm focus:border-accent-sky focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-body">
+                  Your Phone Number Used to Pay
+                </label>
+                <input
+                  type="text"
+                  maxLength={40}
+                  value={payerPhone}
+                  onChange={(e) => setPayerPhone(e.target.value)}
+                  placeholder="e.g. 075..."
+                  className="mt-1 w-full rounded-xl border border-border-input bg-input-bg text-heading px-3.5 py-2.5 text-sm focus:border-accent-sky focus:outline-none"
+                />
+              </div>
+            </div>
+
+            {/* Screenshot Upload Box */}
+            <div className="rounded-2xl border-2 border-dashed border-sky-200 dark:border-sky-800/70 bg-accent-sky-soft p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-bold text-heading">
+                    Upload Screenshot or PDF Proof of Payment
+                  </div>
+                  <p className="text-[11px] text-muted">
+                    Attach your Airtel Money / MoMo SMS screenshot or PDF bank receipt (up to 20 MB).
+                  </p>
+                </div>
+                <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-btn-primary px-4 py-2 text-xs font-semibold text-white hover:bg-btn-primary-hover transition-colors">
+                  <ImageIcon className="h-4 w-4 text-accent-gold" />
+                  <span>{receiptUrl ? 'Change Proof File' : 'Upload Screenshot / PDF'}</span>
+                  <input
+                    type="file"
+                    accept="image/*,application/pdf"
+                    onChange={handleScreenshotSelected}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              {(uploadPct !== null || compressingImg) && (
+                <div className="flex items-center gap-2 text-xs font-semibold text-accent-sky-text">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>
+                    {compressingImg
+                      ? `Uploading proof: ${uploadPct ?? 25}%`
+                      : `Uploading proof: ${uploadPct}%`}
+                  </span>
+                </div>
+              )}
+
+              {screenshotNotice && (
+                <div className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                  {screenshotNotice}
+                </div>
+              )}
+
+              {sanitizeSafeReceiptUrl(receiptUrl, 900000) && (
+                <div className="flex items-start gap-3 rounded-xl border border-border-theme bg-surface p-3">
+                  {receiptIsPdf || receiptUrl.startsWith('data:application/pdf') ? (
+                    <div className="flex h-20 w-20 items-center justify-center rounded-lg border border-border-theme bg-accent-sky-soft text-xs font-bold text-accent-sky-text">
+                      PDF
+                    </div>
+                  ) : (
+                    <ResolvedImage
+                      url={receiptUrl}
+                      alt="Uploaded payment proof preview"
+                      className="h-24 w-24 rounded-lg object-cover border border-border-theme"
+                    />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-semibold text-heading">
+                      Payment Proof Ready
+                    </div>
+                    <p className="mt-0.5 text-[11px] text-muted">
+                      Visible to the school bursar for verification.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReceiptUrl('');
+                        setReceiptIsPdf(false);
+                        setScreenshotNotice(null);
+                      }}
+                      className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400 hover:underline"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                      <span>Remove Proof</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <input
+                type="url"
+                maxLength={1000}
+                value={
+                  receiptUrl.startsWith('data:') || receiptUrl.startsWith('chunked://')
+                    ? ''
+                    : receiptUrl
+                }
+                onChange={(e) => {
+                  setReceiptIsPdf(false);
+                  setReceiptUrl(e.target.value);
+                }}
+                placeholder="Or paste an https:// link to your payment screenshot (optional)"
+                className="w-full rounded-xl border border-border-input bg-input-bg text-heading px-3 py-2 text-xs focus:border-accent-sky focus:outline-none"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowPayPanel(false)}
+                className="rounded-xl border border-border-theme px-4 py-2.5 text-xs font-semibold text-body hover:bg-surface-muted"
+              >
+                Hide Details
+              </button>
+              <button
+                type="submit"
+                disabled={submitting || uploadPct !== null || compressingImg}
+                className="inline-flex items-center gap-2 rounded-xl bg-btn-primary px-5 py-2.5 text-xs font-semibold text-white hover:bg-btn-primary-hover disabled:opacity-60"
+              >
+                {submitting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4 text-accent-gold" />
+                )}
+                <span>Submit Payment Proof</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {/* Summary Strip */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="rounded-2xl border border-border-theme bg-surface p-5">
@@ -409,238 +612,19 @@ export const StudentFeesPage: React.FC<StudentFeesPageProps> = ({ onBack }) => {
             {formatUGX(totalPaid)}
           </div>
         </div>
-        <div className="rounded-2xl border border-border-theme bg-surface-subtle p-5 flex items-center justify-between gap-3">
-          <div>
-            <div className="text-xs font-medium text-faint">
-              {balance > 0 ? 'Unpaid Balance (Muted)' : 'Account Cleared'}
-            </div>
-            <div
-              className={`mt-1.5 font-display text-xl font-bold tabular-nums ${
-                balance > 0 ? 'text-faint' : 'text-emerald-700 dark:text-emerald-400'
-              }`}
-            >
-              {formatUGX(balance)}
-            </div>
+        <div className="rounded-2xl border border-border-theme bg-surface-subtle p-5">
+          <div className="text-xs font-medium text-faint">
+            {balance > 0 ? 'Unpaid Balance (Muted)' : 'Account Cleared'}
           </div>
-          {balance > 0 && !showPayPanel && (
-            <button
-              type="button"
-              onClick={openPayPanel}
-              className="shrink-0 rounded-xl bg-sky-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-sky-700"
-            >
-              Pay Balance
-            </button>
-          )}
+          <div
+            className={`mt-1.5 font-display text-xl font-bold tabular-nums ${
+              balance > 0 ? 'text-faint' : 'text-emerald-700 dark:text-emerald-400'
+            }`}
+          >
+            {formatUGX(balance)}
+          </div>
         </div>
       </div>
-
-      {/* Inline Student Payment Submission Form */}
-      {showPayPanel && (
-        <form
-          onSubmit={handleSubmitPayment}
-          className="rounded-2xl border border-sky-200 dark:border-sky-800/70 bg-surface p-6 shadow-xs space-y-5"
-        >
-          <div className="flex items-start justify-between gap-3 border-b border-border-subtle pb-4">
-            <div>
-              <h2 className="font-display text-lg font-bold text-heading">
-                Pay School Fees & Upload Screenshot
-              </h2>
-              <p className="mt-0.5 text-xs text-body">
-                Send fees on <strong>Airtel Money to {airtelNumber}</strong> (or MTN MoMo / Bank
-                Deposit), then upload a screenshot of your confirmation message below.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowPayPanel(false)}
-              className="rounded-lg p-1.5 text-faint hover:bg-surface-muted hover:text-body"
-              aria-label="Close payment form"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-
-          {submitError && (
-            <div className="rounded-xl border border-rose-200 dark:border-rose-800/70 bg-rose-50 dark:bg-rose-950/50 px-3.5 py-2.5 text-xs font-medium text-rose-700 dark:text-rose-300">
-              {submitError}
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <div className="flex items-center justify-between">
-                <label className="block text-xs font-semibold text-body">
-                  Amount Paid (UGX)
-                </label>
-                {balance > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setAmountUGX(String(balance))}
-                    className="text-[11px] font-semibold text-accent-sky-text hover:underline"
-                  >
-                    Fill Balance ({formatUGX(balance)})
-                  </button>
-                )}
-              </div>
-              <input
-                type="number"
-                required
-                min={1000}
-                max={50000000}
-                value={amountUGX}
-                onChange={(e) => setAmountUGX(e.target.value)}
-                placeholder="e.g. 250000"
-                className="mt-1 w-full rounded-xl border border-border-input bg-input-bg text-heading px-3.5 py-2.5 font-mono text-sm focus:border-accent-sky focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-body">Payment Method</label>
-              <select
-                value={paymentMethod}
-                onChange={(e) =>
-                  setPaymentMethod(e.target.value as FeePaymentRequest['paymentMethod'])
-                }
-                className="mt-1 w-full rounded-xl border border-border-input bg-input-bg text-heading px-3 py-2.5 text-sm focus:border-accent-sky focus:outline-none"
-              >
-                <option value="Airtel Money">Airtel Money ({airtelNumber})</option>
-                <option value="MTN MoMo">MTN MoMo</option>
-                <option value="Bank Deposit">Bank Deposit</option>
-                <option value="Cash Receipt">Cash Receipt</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-body">
-                Transaction ID / Reference {receiptUrl ? '(Optional with Screenshot)' : ''}
-              </label>
-              <input
-                type="text"
-                maxLength={80}
-                value={referenceCode}
-                onChange={(e) => setReferenceCode(e.target.value)}
-                placeholder="e.g. AIRTEL-MP260411 or SMS ID"
-                className="mt-1 w-full rounded-xl border border-border-input bg-input-bg text-heading px-3.5 py-2.5 font-mono text-sm focus:border-accent-sky focus:outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-body">
-                Your Phone Number Used to Pay
-              </label>
-              <input
-                type="text"
-                maxLength={40}
-                value={payerPhone}
-                onChange={(e) => setPayerPhone(e.target.value)}
-                placeholder="e.g. 075..."
-                className="mt-1 w-full rounded-xl border border-border-input bg-input-bg text-heading px-3.5 py-2.5 text-sm focus:border-accent-sky focus:outline-none"
-              />
-            </div>
-          </div>
-
-          {/* Screenshot Upload Box */}
-          <div className="rounded-2xl border-2 border-dashed border-sky-200 dark:border-sky-800/70 bg-accent-sky-soft p-4 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <div className="text-xs font-bold text-heading">
-                  Upload Screenshot as Proof of Payment
-                </div>
-                <p className="text-[11px] text-muted">
-                  Attach your Airtel Money / MoMo SMS or app receipt screenshot (PNG, JPG, WebP).
-                </p>
-              </div>
-              <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-btn-primary px-4 py-2 text-xs font-semibold text-white hover:bg-btn-primary-hover transition-colors">
-                <ImageIcon className="h-4 w-4 text-accent-gold" />
-                <span>{receiptUrl ? 'Change Screenshot' : 'Choose Screenshot'}</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleScreenshotSelected}
-                  className="hidden"
-                />
-              </label>
-            </div>
-
-            {(uploadPct !== null || compressingImg) && (
-              <div className="flex items-center gap-2 text-xs font-semibold text-accent-sky-text">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                <span>
-                  {compressingImg
-                    ? 'Preparing screenshot proof...'
-                    : `Uploading screenshot: ${uploadPct}%`}
-                </span>
-              </div>
-            )}
-
-            {screenshotNotice && (
-              <div className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
-                {screenshotNotice}
-              </div>
-            )}
-
-            {sanitizeSafeReceiptUrl(receiptUrl) && (
-              <div className="flex items-start gap-3 rounded-xl border border-border-theme bg-surface p-3">
-                <img
-                  src={sanitizeSafeReceiptUrl(receiptUrl)}
-                  alt="Uploaded payment proof preview"
-                  className="h-24 w-24 rounded-lg object-cover border border-border-theme"
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-semibold text-heading">
-                    Payment Screenshot Ready
-                  </div>
-                  <p className="mt-0.5 text-[11px] text-muted">
-                    Visible to the school bursar for verification.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setReceiptUrl('');
-                      setScreenshotNotice(null);
-                    }}
-                    className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400 hover:underline"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                    <span>Remove Screenshot</span>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <input
-              type="url"
-              maxLength={1000}
-              value={receiptUrl.startsWith('data:') ? '' : receiptUrl}
-              onChange={(e) => setReceiptUrl(e.target.value)}
-              placeholder="Or paste an https:// link to your payment screenshot (optional)"
-              className="w-full rounded-xl border border-border-input bg-input-bg text-heading px-3 py-2 text-xs focus:border-accent-sky focus:outline-none"
-            />
-          </div>
-
-          <div className="flex flex-wrap items-center justify-end gap-3 pt-1">
-            <button
-              type="button"
-              onClick={() => setShowPayPanel(false)}
-              className="rounded-xl border border-border-theme px-4 py-2.5 text-xs font-semibold text-body hover:bg-surface-muted"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={submitting || uploadPct !== null || compressingImg}
-              className="inline-flex items-center gap-2 rounded-xl bg-btn-primary px-5 py-2.5 text-xs font-semibold text-white hover:bg-btn-primary-hover disabled:opacity-60"
-            >
-              {submitting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Send className="h-4 w-4 text-accent-gold" />
-              )}
-              <span>Submit Payment Proof</span>
-            </button>
-          </div>
-        </form>
-      )}
 
       {/* Submitted Student Payment Requests */}
       {paymentRequests.length > 0 && (
@@ -653,7 +637,7 @@ export const StudentFeesPage: React.FC<StudentFeesPageProps> = ({ onBack }) => {
           </div>
           <div className="divide-y divide-border-subtle">
             {paymentRequests.map((req) => {
-              const safeReceipt = sanitizeSafeReceiptUrl(req.receiptUrl);
+              const safeReceipt = sanitizeSafeReceiptUrl(req.receiptUrl, 900000);
               return (
                 <div
                   key={req.id}
@@ -695,18 +679,29 @@ export const StudentFeesPage: React.FC<StudentFeesPageProps> = ({ onBack }) => {
                     )}
                   </div>
                   {safeReceipt && (
-                    <button
-                      type="button"
-                      onClick={() => setPreviewScreenshot(safeReceipt)}
-                      className="inline-flex items-center gap-2 rounded-xl border border-border-theme bg-surface-subtle px-3 py-1.5 text-xs font-semibold text-heading hover:bg-surface-muted shrink-0"
-                    >
-                      <img
-                        src={safeReceipt}
-                        alt="Proof thumbnail"
-                        className="h-6 w-6 rounded object-cover"
-                      />
-                      <span>View Screenshot</span>
-                    </button>
+                    safeReceipt.startsWith('chunked://') || safeReceipt.startsWith('data:application/pdf') ? (
+                      <ResolvedFileLink
+                        url={safeReceipt}
+                        fileName={`receipt_${req.referenceCode}`}
+                        className="inline-flex items-center gap-2 rounded-xl border border-border-theme bg-surface-subtle px-3 py-1.5 text-xs font-semibold text-heading hover:bg-surface-muted shrink-0"
+                      >
+                        <Receipt className="h-4 w-4 text-accent-sky" />
+                        <span>View Proof File</span>
+                      </ResolvedFileLink>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setPreviewScreenshot(safeReceipt)}
+                        className="inline-flex items-center gap-2 rounded-xl border border-border-theme bg-surface-subtle px-3 py-1.5 text-xs font-semibold text-heading hover:bg-surface-muted shrink-0"
+                      >
+                        <img
+                          src={safeReceipt}
+                          alt="Proof thumbnail"
+                          className="h-6 w-6 rounded object-cover"
+                        />
+                        <span>View Screenshot</span>
+                      </button>
+                    )
                   )}
                 </div>
               );
@@ -735,8 +730,7 @@ export const StudentFeesPage: React.FC<StudentFeesPageProps> = ({ onBack }) => {
               No verified payment receipts posted yet for {studentProfile.fullName}.
             </p>
             <p className="mt-1 text-xs text-faint">
-              Send Airtel Money to {airtelNumber} and tap Pay School Fees above to upload your
-              screenshot.
+              Tap Payment Details & Pay Fees above when ready to submit payment proof.
             </p>
           </div>
         ) : (
@@ -780,8 +774,8 @@ export const StudentFeesPage: React.FC<StudentFeesPageProps> = ({ onBack }) => {
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <img
-              src={previewScreenshot}
+            <ResolvedImage
+              url={previewScreenshot}
               alt="Payment proof screenshot"
               className="max-h-[70vh] w-full rounded-xl object-contain bg-surface-muted"
             />

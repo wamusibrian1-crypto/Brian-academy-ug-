@@ -41,6 +41,7 @@ import {
   sanitizeString,
 } from '../../lib/validation';
 import { logPlatformActivity } from '../../lib/activity';
+import { ResolvedFileLink, ResolvedImage } from '../ResolvedFileView';
 
 export const AdminFeesPage: React.FC = () => {
   const { adminProfile, academicSettings } = useAuth();
@@ -420,7 +421,7 @@ export const AdminFeesPage: React.FC = () => {
             Student Fees Amount Determination Center
           </h1>
           <p className="mt-1 text-sm text-muted">
-            Determine S1–S6 and individual student fee amounts in UGX, verify Airtel Money ({academicSettings.supportPhone || '0753336009'}) screenshots, and mute unpaid access.
+            Determine S1–S6 and individual student fee amounts in UGX, verify Airtel Money ({academicSettings.supportPhone || '256753336009'}) screenshots, and mute unpaid access.
           </p>
         </div>
 
@@ -594,7 +595,7 @@ export const AdminFeesPage: React.FC = () => {
         ) : (
           <div className="divide-y divide-border-subtle">
             {paymentRequests.map((req) => {
-              const safeReceipt = sanitizeSafeReceiptUrl(req.receiptUrl);
+              const safeReceipt = sanitizeSafeReceiptUrl(req.receiptUrl, 900000);
               const isBusy = processingRequestId === req.id;
               return (
                 <div
@@ -602,7 +603,7 @@ export const AdminFeesPage: React.FC = () => {
                   className="flex flex-col gap-3 py-4 lg:flex-row lg:items-center lg:justify-between"
                 >
                   <div className="flex items-start gap-3">
-                    {safeReceipt && (
+                    {safeReceipt && !safeReceipt.startsWith('chunked://') && !safeReceipt.startsWith('data:application/pdf') && (
                       <button
                         type="button"
                         onClick={() => setInspectingRequest(req)}
@@ -983,12 +984,33 @@ export const AdminFeesPage: React.FC = () => {
               </button>
             </div>
 
-            {sanitizeSafeReceiptUrl(inspectingRequest.receiptUrl) ? (
-              <img
-                src={sanitizeSafeReceiptUrl(inspectingRequest.receiptUrl)}
-                alt="Student payment proof"
-                className="max-h-[60vh] w-full rounded-xl object-contain bg-surface-subtle border border-border-theme"
-              />
+            {sanitizeSafeReceiptUrl(inspectingRequest.receiptUrl, 900000) ? (
+              inspectingRequest.receiptUrl.startsWith('data:application/pdf') ? (
+                <ResolvedFileLink
+                  url={inspectingRequest.receiptUrl}
+                  fileName={`receipt_${inspectingRequest.referenceCode}.pdf`}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-btn-primary px-4 py-3 text-xs font-semibold text-white hover:bg-btn-primary-hover"
+                >
+                  <Eye className="h-4 w-4" />
+                  <span>Open / Download PDF Receipt</span>
+                </ResolvedFileLink>
+              ) : (
+                <div className="space-y-2.5">
+                  <ResolvedImage
+                    url={inspectingRequest.receiptUrl}
+                    alt="Student payment proof"
+                    className="max-h-[60vh] w-full rounded-xl object-contain bg-surface-subtle border border-border-theme"
+                  />
+                  <ResolvedFileLink
+                    url={inspectingRequest.receiptUrl}
+                    fileName={`receipt_${inspectingRequest.referenceCode}`}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-border-theme bg-surface-subtle px-4 py-2 text-xs font-semibold text-heading hover:bg-surface-muted"
+                  >
+                    <Eye className="h-3.5 w-3.5 text-accent-sky" />
+                    <span>Open / Download Full Proof File (Photo or PDF)</span>
+                  </ResolvedFileLink>
+                </div>
+              )
             ) : (
               <p className="py-6 text-center text-xs text-muted">
                 No screenshot attached to this submission.

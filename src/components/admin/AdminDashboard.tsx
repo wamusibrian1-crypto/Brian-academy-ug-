@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
+  Activity,
   BarChart3,
   BookOpen,
   Check,
@@ -23,6 +24,7 @@ import {
   SupportTicket,
 } from '../../types/academy';
 import { getLiveAppUrl } from '../../lib/validation';
+import { OfficialLogo } from '../BrandMark';
 
 interface AdminDashboardProps {
   onSelectSection: (section: AdminSection) => void;
@@ -109,7 +111,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectSection 
       subtitle: 'Faculty & subjects',
       icon: Users,
       iconBg: 'bg-indigo-100/90 dark:bg-indigo-900/50',
-      iconColor: 'text-[#0B1F3A] dark:text-indigo-300',
+      iconColor: 'text-[#124299] dark:text-indigo-300',
       adminOnly: true,
     },
     {
@@ -139,6 +141,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectSection 
       adminOnly: true,
     },
     {
+      id: 'monitoring',
+      title: 'Monitoring Center',
+      subtitle: 'Teachers, submissions & stats',
+      icon: Activity,
+      iconBg: 'bg-sky-100/90 dark:bg-sky-900/50',
+      iconColor: 'text-[#0284C7] dark:text-sky-300',
+      adminOnly: true,
+    },
+    {
       id: 'reports',
       title: 'Reports & Results',
       subtitle: 'Report Card PDF & logs',
@@ -161,19 +172,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onSelectSection 
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl bg-gradient-to-br from-[#0B1F3A] via-[#102D54] to-[#0E3A6E] p-6 text-white shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-medium text-[#D4AF37]">
-              {academicSettings.termName} {academicSettings.academicYear} ·{' '}
-              {academicSettings.gradingSystem.replace(/_/g, ' ')}
-            </p>
-            <h1 className="mt-1 font-display text-2xl font-bold sm:text-3xl">
-              {isAdmin ? 'Administrator Command Center' : 'Teacher Academic Workspace'}
-            </h1>
-            <p className="mt-1 text-sm text-sky-100">
-              Signed in as {adminProfile?.fullName || teacherProfile?.fullName}
-            </p>
+      <div className="rounded-2xl bg-gradient-to-br from-[#0B1F3A] via-[#0E3378] to-[#124299] p-6 text-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="h-16 w-16 shrink-0 rounded-2xl bg-white p-1 shadow-xs ring-2 ring-[#EAB308]/60">
+              <OfficialLogo className="h-full w-full" />
+            </div>
+            <div>
+              <p className="text-xs font-medium text-[#FACC15]">
+                {academicSettings.termName} {academicSettings.academicYear} ·{' '}
+                {academicSettings.gradingSystem.replace(/_/g, ' ')}
+              </p>
+              <h1 className="mt-1 font-display text-2xl font-bold sm:text-3xl">
+                {isAdmin ? 'Administrator Command Center' : 'Teacher Academic Workspace'}
+              </h1>
+              <p className="mt-1 text-sm text-sky-100">
+                Signed in as {adminProfile?.fullName || teacherProfile?.fullName} · LEARN. DISCOVER. EXCEL.
+              </p>
+            </div>
           </div>
 
           {isAdmin && (

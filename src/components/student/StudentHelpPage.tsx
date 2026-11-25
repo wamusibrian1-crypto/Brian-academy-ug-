@@ -14,6 +14,7 @@ import { useAuth } from '../../context/AuthContext';
 import { SupportTicket } from '../../types/academy';
 import { formatTimestamp, generateDocId, sanitizeString } from '../../lib/validation';
 import { PWAInstallButton } from '../PWAInstallButton';
+import { OfficialLogo } from '../BrandMark';
 
 interface StudentHelpPageProps {
   onBack: () => void;
@@ -157,8 +158,27 @@ export const StudentHelpPage: React.FC<StudentHelpPageProps> = ({ onBack }) => {
           </form>
         </div>
 
-        {/* Guides & Ticket Status */}
+        {/* Guides & About Us & Ticket Status */}
         <div className="space-y-6 lg:col-span-6">
+          <div className="rounded-2xl border border-border-theme bg-surface p-6 shadow-xs">
+            <div className="flex items-center gap-4">
+              <div className="h-20 w-20 shrink-0 rounded-2xl bg-white p-1 shadow-xs ring-1 ring-[#EAB308]/50">
+                <OfficialLogo className="h-full w-full" />
+              </div>
+              <div>
+                <h2 className="font-display text-base font-bold text-heading">
+                  About BRIAN ACADEMY UG
+                </h2>
+                <p className="text-[11px] font-bold tracking-wider text-accent-sky-text uppercase">
+                  LEARN. DISCOVER. EXCEL.
+                </p>
+                <p className="mt-1 text-xs text-muted">
+                  Official Secondary STEM Academy · Physics, Chemistry, Biology & Mathematics (S1–S6) · {academicSettings.supportEmail || 'wamusibrian5@gmail.com'} · {academicSettings.supportPhone || '256753336009'}.
+                </p>
+              </div>
+            </div>
+          </div>
+
           <div className="rounded-2xl border border-border-theme bg-surface p-6 shadow-xs">
             <h2 className="font-display text-base font-bold text-heading">
               Quick Student Guides

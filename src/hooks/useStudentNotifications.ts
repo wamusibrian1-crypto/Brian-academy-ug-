@@ -2,13 +2,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuth } from '../context/AuthContext';
-import { Assessment, ChatMessage, SupportTicket } from '../types/academy';
+import {
+  Assessment,
+  AssessmentSubmission,
+  ChatMessage,
+  StudyMaterial,
+  SupportTicket,
+} from '../types/academy';
 import { formatTimestamp } from '../lib/validation';
 import type { StudentFeature } from '../components/student/StudentShell';
 
 export interface StudentNotificationItem {
   id: string;
-  type: 'homework' | 'test' | 'message' | 'support';
+  type: 'material' | 'homework' | 'test' | 'message' | 'support';
   title: string;
   body: string;
   targetFeature: Exclude<StudentFeature, null>;
@@ -25,14 +31,18 @@ function getTsSeconds(ts: unknown): number {
 
 export function useStudentNotifications() {
   const { studentProfile } = useAuth();
+  const [materials, setMaterials] = useState<StudyMaterial[]>([]);
   const [assessments, setAssessments] = useState<Assessment[]>([]);
+  const [institutionMsgs, setInstitutionMsgs] = useState<ChatMessage[]>([]);
   const [channelMsgs, setChannelMsgs] = useState<ChatMessage[]>([]);
   const [directMsgs, setDirectMsgs] = useState<ChatMessage[]>([]);
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const [mySubmissions, setMySubmissions] = useState<AssessmentSubmission[]>([]);
 
   const storageKey = studentProfile ? `baug_seen_notifs_${studentProfile.uid}` : '';
 
   const [seenIds, setSeenIds] = useState<Record<string, boolean>>({});
+  const [latestAlert, setLatestAlert] = useState<StudentNotificationItem | null>(null);
   const [browserPermission, setBrowserPermission] = useState<NotificationPermission>(() =>
     typeof window !== 'undefined' && 'Notification' in window
       ? window.Notification.permission
@@ -69,7 +79,7 @@ export function useStudentNotifications() {
     (nextMap: Record<string, boolean>) => {
       if (!storageKey) return;
       try {
-        const keys = Object.keys(nextMap).slice(-250);
+        const keys = Object.keys(nextMap).slice(-300);
         localStorage.setItem(storageKey, JSON.stringify(keys));
       } catch {
         // ignore storage quota errors
@@ -78,9 +88,16 @@ export function useStudentNotifications() {
     [storageKey]
   );
 
-  // Subscribe to student's published assessments, admin/teacher messages, and support replies
+  // Subscribe to ALL published study materials/PDFs, assessments, institution/class/direct chat, and support replies
   useEffect(() => {
     if (!studentProfile) return;
+
+    const qMaterials = query(collection(db, 'materials'), where('published', '==', true));
+    const unsubMaterials = onSnapshot(
+      qMaterials,
+      (snap) => setMaterials(snap.docs.map((d) => d.data() as StudyMaterial)),
+      () => {}
+    );
 
     const qAssess = query(
       collection(db, 'assessments'),
@@ -90,6 +107,17 @@ export function useStudentNotifications() {
     const unsubAssess = onSnapshot(
       qAssess,
       (snap) => setAssessments(snap.docs.map((d) => d.data() as Assessment)),
+      () => {}
+    );
+
+    const qInstitution = query(
+      collection(db, 'chatMessages'),
+      where('classLevel', '==', 'ALL'),
+      where('recipientStudentId', '==', '')
+    );
+    const unsubInstitution = onSnapshot(
+      qInstitution,
+      (snap) => setInstitutionMsgs(snap.docs.map((d) => d.data() as ChatMessage)),
       () => {}
     );
 
@@ -125,27 +153,53 @@ export function useStudentNotifications() {
       () => {}
     );
 
+    const qSubmissions = query(
+      collection(db, 'submissions'),
+      where('studentId', '==', studentProfile.uid)
+    );
+    const unsubSubmissions = onSnapshot(
+      qSubmissions,
+      (snap) => setMySubmissions(snap.docs.map((d) => d.data() as AssessmentSubmission)),
+      () => {}
+    );
+
     const timer = window.setTimeout(() => {
       initialLoadedRef.current = true;
     }, 1500);
 
     return () => {
       window.clearTimeout(timer);
+      unsubMaterials();
       unsubAssess();
+      unsubInstitution();
       unsubChannel();
       unsubDirect();
       unsubTickets();
+      unsubSubmissions();
     };
   }, [studentProfile]);
 
   const notifications = useMemo<StudentNotificationItem[]>(() => {
+    if (!studentProfile) return [];
     const items: StudentNotificationItem[] = [];
+
+    for (const m of materials) {
+      items.push({
+        id: `mat_${m.id}`,
+        type: 'material',
+        title: `New Upload (${m.materialType.toUpperCase()}): ${m.title}`,
+        body: `${m.classLevel === 'ALL' ? 'All Classes' : m.classLevel} · ${m.subject} uploaded by ${m.uploaderName}`,
+        targetFeature: 'study-material',
+        createdAtSec: getTsSeconds(m.createdAt),
+        timestampLabel: formatTimestamp(m.createdAt),
+      });
+    }
 
     for (const a of assessments) {
       items.push({
         id: `assess_${a.id}`,
         type: a.kind === 'homework' ? 'homework' : 'test',
-        title: `New ${a.kind === 'homework' ? 'Homework' : 'Test'}: ${a.title}`,
+        title: `New ${a.kind === 'homework' ? 'Homework' : 'Test'} Upload: ${a.title}`,
         body: `${a.subject} · Due ${a.dueDate || 'Check schedule'} · ${a.totalMarks} marks`,
         targetFeature: a.kind === 'homework' ? 'homework' : 'test',
         createdAtSec: getTsSeconds(a.createdAt),
@@ -153,15 +207,27 @@ export function useStudentNotifications() {
       });
     }
 
-    const staffMessages = [...channelMsgs, ...directMsgs].filter(
-      (m) => m.senderRole === 'admin' || m.senderRole === 'teacher'
-    );
-    for (const m of staffMessages) {
-      const roleTag = m.senderRole === 'admin' ? 'Administrator' : 'Teacher';
+    const allMessages = [...institutionMsgs, ...channelMsgs, ...directMsgs];
+    const uniqueMsgs = new Map<string, ChatMessage>();
+    for (const msg of allMessages) {
+      if (msg.senderId !== studentProfile.uid) {
+        uniqueMsgs.set(msg.id, msg);
+      }
+    }
+
+    for (const m of uniqueMsgs.values()) {
+      const roleTag =
+        m.senderRole === 'admin'
+          ? 'Administrator'
+          : m.senderRole === 'teacher'
+            ? 'Teacher'
+            : 'Student';
+      const roomLabel =
+        m.channelId === 'institution_all' ? 'Institution Chat' : m.subject;
       items.push({
         id: `msg_${m.id}`,
         type: 'message',
-        title: `${roleTag} Message · ${m.subject}`,
+        title: `New Chat (${roomLabel}) · ${roleTag}`,
         body: `${m.senderName}: ${m.text.slice(0, 90)}${m.text.length > 90 ? '…' : ''}`,
         targetFeature: 'chat',
         createdAtSec: getTsSeconds(m.createdAt),
@@ -183,11 +249,49 @@ export function useStudentNotifications() {
       }
     }
 
-    items.sort((a, b) => b.createdAtSec - a.createdAtSec);
-    return items.slice(0, 25);
-  }, [assessments, channelMsgs, directMsgs, tickets]);
+    for (const s of mySubmissions) {
+      const updatedSec = getTsSeconds(s.updatedAt);
+      if (s.status === 'published' || s.status === 'graded') {
+        items.push({
+          id: `sub_${s.id}_${s.status}_${updatedSec}`,
+          type: s.kind === 'homework' ? 'homework' : 'test',
+          title: `Work Marked: ${s.assessmentTitle}`,
+          body: `${s.subject} · Score: ${s.totalScore}/${s.maxMarks} (${s.grade || 'Graded'})${
+            s.teacherRemarks ? ` · ${s.teacherRemarks.slice(0, 60)}` : ''
+          }`,
+          targetFeature: s.kind === 'homework' ? 'homework' : 'test',
+          createdAtSec: updatedSec,
+          timestampLabel: formatTimestamp(s.updatedAt),
+        });
+      } else if (s.status === 'returned') {
+        items.push({
+          id: `sub_${s.id}_returned_${updatedSec}`,
+          type: s.kind === 'homework' ? 'homework' : 'test',
+          title: `Returned for Correction: ${s.assessmentTitle}`,
+          body: `${s.subject} · ${
+            s.corrections || s.teacherRemarks || 'Please review teacher guidance and resubmit.'
+          }`,
+          targetFeature: s.kind === 'homework' ? 'homework' : 'test',
+          createdAtSec: updatedSec,
+          timestampLabel: formatTimestamp(s.updatedAt),
+        });
+      }
+    }
 
-  // Fire local browser Notification for newly arriving items after initial hydration
+    items.sort((a, b) => b.createdAtSec - a.createdAtSec);
+    return items.slice(0, 40);
+  }, [
+    studentProfile,
+    materials,
+    assessments,
+    institutionMsgs,
+    channelMsgs,
+    directMsgs,
+    tickets,
+    mySubmissions,
+  ]);
+
+  // Fire local browser Notification + live in-app toast for newly arriving uploads & chats
   useEffect(() => {
     if (!studentProfile) return;
 
@@ -197,28 +301,41 @@ export function useStudentNotifications() {
       return;
     }
 
+    let newestArrival: StudentNotificationItem | null = null;
     for (const n of notifications) {
       if (!currentKnown.has(n.id)) {
         currentKnown.add(n.id);
-        if (
-          typeof window !== 'undefined' &&
-          'Notification' in window &&
-          window.Notification.permission === 'granted' &&
-          !seenIds[n.id]
-        ) {
-          try {
-            new window.Notification(n.title, {
-              body: n.body,
-              icon: '/pwa-192x192.png',
-              tag: n.id,
-            });
-          } catch {
-            // Ignore browser Notification constructor restrictions
+        if (!seenIds[n.id]) {
+          if (!newestArrival) newestArrival = n;
+          if (
+            typeof window !== 'undefined' &&
+            'Notification' in window &&
+            window.Notification.permission === 'granted'
+          ) {
+            try {
+              new window.Notification(n.title, {
+                body: n.body,
+                icon: '/pwa-192x192.png',
+                tag: n.id,
+              });
+            } catch {
+              // Ignore browser Notification constructor restrictions
+            }
           }
         }
       }
     }
+
+    if (newestArrival) {
+      setLatestAlert(newestArrival);
+    }
   }, [notifications, seenIds, studentProfile]);
+
+  useEffect(() => {
+    if (!latestAlert) return;
+    const t = window.setTimeout(() => setLatestAlert(null), 6000);
+    return () => window.clearTimeout(t);
+  }, [latestAlert]);
 
   const unreadItems = useMemo(
     () => notifications.filter((n) => !seenIds[n.id]),
@@ -287,6 +404,8 @@ export function useStudentNotifications() {
     unreadCount: unreadItems.length,
     unreadByFeature,
     seenIds,
+    latestAlert,
+    dismissLatestAlert: () => setLatestAlert(null),
     markAsRead,
     markFeatureRead,
     markAllRead,
